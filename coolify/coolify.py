@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""
+Coolify CLI — interroge l'état des déploiements sur une ou plusieurs instances Coolify.
+
+Usage:
+  ./coolify.py instances                          # Liste les instances configurées
+  ./coolify.py status <instance> <app_name>       # État actuel d'une app
+  ./coolify.py deployments <instance> <app_name>  # Derniers déploiements (5 par défaut)
+  ./coolify.py deployments <instance> <app_name> -n 10  # 10 derniers déploiements
+"""
+
+import argparse
+import json
+import os
+import sys
+import urllib.request
+import urllib.error
+from datetime import datetime, timezone
+
+
+# ─── Config ────────────────────────────────────────────────────────────────
+
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+
+
+def load_config():
+    if not os.path.exists(CONFIG_PATH):
+        print(f"❌ Fichier config introuvable : {CONFIG_PATH}")
+        print(f"   Copiez config.example.json → config.json et remplissez vos données.")
+        sys.exit(1)
+    with open(CONFIG_PATH) as f:
+        data = json.load(f)
+    return {inst["name"]: inst for inst in data.get("instances", [])}
+
+
+# ─── API ───────────────────────────────────────────────────────────────────
+
+def api_get(instance, path):
+    url = f"{instance['url'].rstrip('/')}/api/v1{path}"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {instance['token']}",
+        "Content-Type": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        print(f"❌ HTTP {e.code} sur {url}")
+        if body:
+            try:
+                detail = json.loads(body)
+                print(f"   {json.dumps(detail, indent=2)}")
+            except json.JSONDecodeError:
+                print(f"   {body}")
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"❌ Erreur réseau : {e.reason}")
+        sys.exit(1)
+
+
+# ─── Formatters ────────────────────────────────────────────────────────────
+
+def fmt_time(iso_str):
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        return dt.strftime("%d/%m/%Y %H:%M:%S")
+    except Exception:
+        return iso_str or "-"
+
+
+def fmt_status(status):
+    icons = {
+        "success": "✅",
+        "failed": "❌",
+        "running": "🔄",
+        "queued": "⏳",
+        "cancelled": "🚫",
+        "in_progress": "🔄",
+    }
+    icon = icons.get(status.lower(), "❓") if status else "❓"
+    return f"{icon} {status or 'inconnu'}"
+
+
+def fmt_duration(start, end):
+    if not start or not end:
+        return "-"
+    try:
+        s = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        e = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        secs = int((e - s).total_seconds())
+        if secs < 60:
+            return f"{secs}s"
+        return f"{secs // 60}m {secs % 60}s"
+    except Exception:
+        return "-"
+
+
+# ─── Commands ──────────────────────────────────────────────────────────────
+
+def cmd_instances(config):
+    """Liste les instances Coolify configurées"""
+    if not config:
+        print("Aucune instance configurée.")
+        return
+    for name, inst in config.items():
+        app_count = len(inst.get("applications", {}))
+        apps_list = ", ".join(inst.get("applications", {}).keys()) or "aucune"
+        print(f"  📦 {name}")
+        print(f"     URL      : {inst['url']}")
+        print(f"     Apps     : {app_count} — {apps_list}")
+        print()
+
+
+def cmd_status(config, instance_name, app_name):
+    """Statut actuel d'une application"""
+    inst = config.get(instance_name)
+    if not inst:
+        print(f"❌ Instance '{instance_name}' inconnue.")
+        print(f"   Disponibles : {', '.join(config.keys())}")
+        return
+
+    app_uuid = inst.get("applications", {}).get(app_name)
+    if not app_uuid:
+        print(f"❌ App '{app_name}' inconnue sur '{instance_name}'.")
+        print(f"   Disponibles : {', '.join(inst.get('applications', {}).keys())}")
+        return
+
+    print(f"📊 Statut de « {app_name} » sur « {instance_name} »")
+    print(f"   UUID : {app_uuid}")
+    print()
+
+    app = api_get(inst, f"/applications/{app_uuid}")
+    deploys = api_get(inst, f"/applications/{app_uuid}/deployments?per_page=5")
+
+    # App info
+    print(f"   🔤 Nom          : {app.get('name', '-')}")
+    print(f"   🌐 Domaine      : {app.get('fqdn', '-')}")
+    print(f"   📦 Type         : {app.get('build_pack', '-')}")
+    print(f"   📍 Statut       : {fmt_status(app.get('status', 'unknown'))}")
+    print(f"   🕐 Créée le     : {fmt_time(app.get('created_at'))}")
+    print()
+
+    # Dernier déploiement
+    if deploys:
+        last = deploys[0]
+        print(f"   🔄 Dernier déploiement :")
+        print(f"      Commit       : {last.get('commit', '-')[:12] or '-'}")
+        print(f"      Statut       : {fmt_status(last.get('status', 'unknown'))}")
+        print(f"      Début        : {fmt_time(last.get('created_at'))}")
+        print(f"      Fin          : {fmt_time(last.get('finished_at'))}")
+        print(f"      Durée        : {fmt_duration(last.get('created_at'), last.get('finished_at'))}")
+    else:
+        print("   Aucun déploiement trouvé.")
+    print()
+
+
+def cmd_deployments(config, instance_name, app_name, count):
+    """Liste les N derniers déploiements d'une application"""
+    inst = config.get(instance_name)
+    if not inst:
+        print(f"❌ Instance '{instance_name}' inconnue.")
+        print(f"   Disponibles : {', '.join(config.keys())}")
+        return
+
+    app_uuid = inst.get("applications", {}).get(app_name)
+    if not app_uuid:
+        print(f"❌ App '{app_name}' inconnue sur '{instance_name}'.")
+        print(f"   Disponibles : {', '.join(inst.get('applications', {}).keys())}")
+        return
+
+    deploys = api_get(inst, f"/applications/{app_uuid}/deployments?per_page={count}")
+
+    if not deploys:
+        print("   Aucun déploiement trouvé.")
+        return
+
+    print(f"📋 Derniers {len(deploys)} déploiements de « {app_name} » sur « {instance_name} »")
+    print()
+
+    for d in deploys:
+        commit = (d.get("commit") or "?")[:12]
+        print(f"  {fmt_status(d.get('status', ''))}  "
+              f"Commit: {commit}  "
+              f"| {fmt_time(d.get('created_at'))}  "
+              f"| Durée: {fmt_duration(d.get('created_at'), d.get('finished_at'))}")
+        print(f"     ID: {d.get('deployment_uuid', '-')}")
+        print()
+
+
+# ─── CLI ───────────────────────────────────────────────────────────────────
+
+def main():
+    config = load_config()
+
+    parser = argparse.ArgumentParser(description="Coolify CLI — statut des déploiements")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    # instances
+    sub.add_parser("instances", help="Liste les instances Coolify configurées")
+
+    # status
+    p_status = sub.add_parser("status", help="Statut actuel d'une application")
+    p_status.add_argument("instance", help="Nom de l'instance (ex: production)")
+    p_status.add_argument("app", help="Nom de l'application (clé dans la config)")
+
+    # deployments
+    p_deploy = sub.add_parser("deployments", help="Derniers déploiements d'une application")
+    p_deploy.add_argument("instance", help="Nom de l'instance")
+    p_deploy.add_argument("app", help="Nom de l'application")
+    p_deploy.add_argument("-n", "--count", type=int, default=5, help="Nombre de déploiements (défaut: 5)")
+
+    args = parser.parse_args()
+
+    if args.command == "instances":
+        cmd_instances(config)
+    elif args.command == "status":
+        cmd_status(config, args.instance, args.app)
+    elif args.command == "deployments":
+        cmd_deployments(config, args.instance, args.app, args.count)
+
+
+if __name__ == "__main__":
+    main()

@@ -9,6 +9,7 @@
 hermes-script/
 ├── README.md               ← Ce fichier
 ├── daily-raspy-report/     ← Rapport CPU/RAM/disque quotidien
+├── coolify/                ← CLI déploiements Coolify
 └── ...                     ← (À venir : tri filebot, deploiement, etc.)
 ```
 
@@ -17,6 +18,7 @@ hermes-script/
 | Commande | Description | Langage |
 |----------|------------|---------|
 | `daily-raspy-report` | Rapport monitoring CPU/RAM/disk, livré tous les matins à 7h | bash |
+| `coolify` | CLI déploiements Coolify — status, logs, historique | python |
 
 ## 🚀 Utilisation
 

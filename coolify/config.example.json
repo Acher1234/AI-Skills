@@ -1,0 +1,21 @@
+{
+  "_comment": "Copiez ce fichier en config.json et remplissez vos instances Coolify",
+  "instances": [
+    {
+      "name": "production",
+      "url": "https://coolify.votre-domaine.com",
+      "token": "votre-token-api",
+      "applications": {
+        "mon-app": "uuid-de-l-application"
+      }
+    },
+    {
+      "name": "staging",
+      "url": "https://staging.coolify.votre-domaine.com",
+      "token": "votre-token-api",
+      "applications": {
+        "mon-app-staging": "uuid-de-l-application"
+      }
+    }
+  ]
+}

@@ -13,7 +13,14 @@ cp config.example.json config.json
 
 ## Configuration
 
-Le fichier `config.json` contient un tableau d'instances Coolify :
+Le fichier `config.json` est cherché dans le dossier du script par défaut.
+Vous pouvez le placer ailleurs et pointer via la variable d'environnement :
+
+```bash
+export COOLIFY_CONFIG_PATH=/root/.hermes/coolify-config.json
+```
+
+Contenu du fichier : un tableau d'instances Coolify.
 
 ```json
 {

@@ -20,7 +20,10 @@ from datetime import datetime, timezone
 
 # ─── Config ────────────────────────────────────────────────────────────────
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+CONFIG_PATH = os.environ.get(
+    "COOLIFY_CONFIG_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"),
+)
 
 
 def load_config():

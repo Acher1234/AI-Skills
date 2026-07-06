@@ -4,6 +4,9 @@ Coolify CLI — interroge l'état des déploiements sur une ou plusieurs instanc
 
 Usage:
   ./coolify.py instances                          # Liste les instances configurées
+  ./coolify.py projects <instance>                # Liste tous les projets
+  ./coolify.py apps <instance> <projet>           # Liste les apps d'un projet
+  ./coolify.py discover <instance> <projet>       # Découvre les apps et met à jour la config
   ./coolify.py status <instance> <app_name>       # État actuel d'une app
   ./coolify.py deployments <instance> <app_name>  # Derniers déploiements (5 par défaut)
   ./coolify.py deployments <instance> <app_name> -n 10  # 10 derniers déploiements
@@ -32,13 +35,44 @@ def load_config():
         print(f"   Copiez config.example.json → config.json et remplissez vos données.")
         sys.exit(1)
     with open(CONFIG_PATH) as f:
-        data = json.load(f)
+        return json.load(f)
+
+
+def get_instances(data):
     return {inst["name"]: inst for inst in data.get("instances", [])}
+
+
+def save_config(data):
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    print(f"   ✅ Config mise à jour : {CONFIG_PATH}")
+
+
+def find_instance(data, name):
+    instances = get_instances(data)
+    inst = instances.get(name)
+    if not inst:
+        print(f"❌ Instance '{name}' inconnue.")
+        print(f"   Disponibles : {', '.join(instances.keys())}")
+        sys.exit(1)
+    return inst
+
+
+def find_project_uuid(inst, name_or_uuid):
+    """Cherche un projet par nom ou UUID, retourne son UUID."""
+    projects = api_get(inst, "/projects")
+    for p in projects:
+        if p["uuid"] == name_or_uuid or p["name"] == name_or_uuid:
+            return p["uuid"], p["name"]
+    print(f"❌ Projet '{name_or_uuid}' introuvable.")
+    print(f"   Utilisez « projects {inst['name']} » pour lister les projets.")
+    sys.exit(1)
 
 
 # ─── API ───────────────────────────────────────────────────────────────────
 
-def api_get(instance, path):
+def api_get(instance, path, optional=False):
     url = f"{instance['url'].rstrip('/')}/api/v1{path}"
     req = urllib.request.Request(url, headers={
         "Authorization": f"Bearer {instance['token']}",
@@ -48,6 +82,8 @@ def api_get(instance, path):
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
+        if optional and e.code == 404:
+            return None
         body = e.read().decode()
         print(f"❌ HTTP {e.code} sur {url}")
         if body:
@@ -60,6 +96,21 @@ def api_get(instance, path):
     except urllib.error.URLError as e:
         print(f"❌ Erreur réseau : {e.reason}")
         sys.exit(1)
+
+
+def get_all_applications(inst, project_uuid):
+    """Récupère toutes les applications d'un projet (parcourt ses environnements)."""
+    project = api_get(inst, f"/projects/{project_uuid}")
+    apps = []
+    for env in project.get("environments", []):
+        env_uuid = env["uuid"]
+        env_apps = api_get(inst, f"/applications?environment_uuid={env_uuid}", optional=True)
+        if env_apps:
+            if isinstance(env_apps, list):
+                apps.extend(env_apps)
+            elif isinstance(env_apps, dict):
+                apps.append(env_apps)
+    return apps
 
 
 # ─── Formatters ────────────────────────────────────────────────────────────
@@ -101,12 +152,13 @@ def fmt_duration(start, end):
 
 # ─── Commands ──────────────────────────────────────────────────────────────
 
-def cmd_instances(config):
+def cmd_instances(data):
     """Liste les instances Coolify configurées"""
-    if not config:
+    instances = get_instances(data)
+    if not instances:
         print("Aucune instance configurée.")
         return
-    for name, inst in config.items():
+    for name, inst in instances.items():
         app_count = len(inst.get("applications", {}))
         apps_list = ", ".join(inst.get("applications", {}).keys()) or "aucune"
         print(f"  📦 {name}")
@@ -115,14 +167,88 @@ def cmd_instances(config):
         print()
 
 
-def cmd_status(config, instance_name, app_name):
-    """Statut actuel d'une application"""
-    inst = config.get(instance_name)
-    if not inst:
-        print(f"❌ Instance '{instance_name}' inconnue.")
-        print(f"   Disponibles : {', '.join(config.keys())}")
+def cmd_projects(data, instance_name):
+    """Liste tous les projets d'une instance"""
+    inst = find_instance(data, instance_name)
+    projects = api_get(inst, "/projects")
+
+    if not projects:
+        print("   Aucun projet trouvé.")
         return
 
+    print(f"📁 Projets sur « {instance_name} »")
+    print()
+    for p in projects:
+        envs = p.get("environments", [])
+        print(f"  📂 {p['name']}")
+        print(f"     UUID     : {p['uuid']}")
+        print(f"     Envs     : {len(envs)}")
+        for env in envs:
+            print(f"       • {env['name']} ({env['uuid']})")
+        print()
+
+
+def cmd_apps(data, instance_name, project_ref):
+    """Liste toutes les applications d'un projet"""
+    inst = find_instance(data, instance_name)
+    project_uuid, project_name = find_project_uuid(inst, project_ref)
+    apps = get_all_applications(inst, project_uuid)
+
+    if not apps:
+        print(f"   Aucune application trouvée dans « {project_name} ».")
+        return
+
+    print(f"📱 Applications de « {project_name} » sur « {instance_name} »")
+    print()
+    for a in apps:
+        print(f"  • {a.get('name', '-')}")
+        print(f"    UUID     : {a.get('uuid', '-')}")
+        print(f"    Status   : {fmt_status(a.get('status', 'unknown'))}")
+        print(f"    Type     : {a.get('build_pack', '-')}")
+        print()
+
+
+def cmd_discover(data, instance_name, project_ref):
+    """Découvre les applications d'un projet et met à jour la config"""
+    inst = find_instance(data, instance_name)
+    project_uuid, project_name = find_project_uuid(inst, project_ref)
+    apps = get_all_applications(inst, project_uuid)
+
+    if not apps:
+        print(f"   Aucune application trouvée dans « {project_name} ».")
+        return
+
+    print(f"🔍 Découverte des apps de « {project_name} » sur « {instance_name} »")
+    print()
+
+    # Build new apps dict
+    new_apps = {}
+    for a in apps:
+        name = a.get("name", "").strip()
+        uuid = a.get("uuid", "")
+        # Make a safe key name
+        key = name.lower().replace(" ", "-").replace("_", "-")
+        new_apps[key] = uuid
+        print(f"  ✅ {name} → {key} : {uuid}")
+
+    # Update config
+    for inst_cfg in data["instances"]:
+        if inst_cfg["name"] == instance_name:
+            existing = inst_cfg.get("applications", {})
+            merged = {**existing, **new_apps}
+            inst_cfg["applications"] = merged
+            save_config(data)
+            print()
+            print(f"   {len(new_apps)} app(s) ajoutée(s)/mise(s) à jour dans la config.")
+            print(f"   Total : {len(merged)} app(s) configurée(s).")
+            return
+
+    print("❌ Instance non trouvée dans la config (inattendu).")
+
+
+def cmd_status(data, instance_name, app_name):
+    """Statut actuel d'une application"""
+    inst = find_instance(data, instance_name)
     app_uuid = inst.get("applications", {}).get(app_name)
     if not app_uuid:
         print(f"❌ App '{app_name}' inconnue sur '{instance_name}'.")
@@ -134,9 +260,12 @@ def cmd_status(config, instance_name, app_name):
     print()
 
     app = api_get(inst, f"/applications/{app_uuid}")
-    deploys = api_get(inst, f"/applications/{app_uuid}/deployments?per_page=5")
+    deploys = api_get(inst, f"/applications/{app_uuid}/deployments?per_page=5", optional=True)
+    if deploys is None:
+        deploys = api_get(inst, f"/deployments?per_page=5&application_uuid={app_uuid}", optional=True)
+    if deploys is None:
+        deploys = []
 
-    # App info
     print(f"   🔤 Nom          : {app.get('name', '-')}")
     print(f"   🌐 Domaine      : {app.get('fqdn', '-')}")
     print(f"   📦 Type         : {app.get('build_pack', '-')}")
@@ -144,7 +273,6 @@ def cmd_status(config, instance_name, app_name):
     print(f"   🕐 Créée le     : {fmt_time(app.get('created_at'))}")
     print()
 
-    # Dernier déploiement
     if deploys:
         last = deploys[0]
         print(f"   🔄 Dernier déploiement :")
@@ -158,21 +286,20 @@ def cmd_status(config, instance_name, app_name):
     print()
 
 
-def cmd_deployments(config, instance_name, app_name, count):
+def cmd_deployments(data, instance_name, app_name, count):
     """Liste les N derniers déploiements d'une application"""
-    inst = config.get(instance_name)
-    if not inst:
-        print(f"❌ Instance '{instance_name}' inconnue.")
-        print(f"   Disponibles : {', '.join(config.keys())}")
-        return
-
+    inst = find_instance(data, instance_name)
     app_uuid = inst.get("applications", {}).get(app_name)
     if not app_uuid:
         print(f"❌ App '{app_name}' inconnue sur '{instance_name}'.")
         print(f"   Disponibles : {', '.join(inst.get('applications', {}).keys())}")
         return
 
-    deploys = api_get(inst, f"/applications/{app_uuid}/deployments?per_page={count}")
+    deploys = api_get(inst, f"/applications/{app_uuid}/deployments?per_page={count}", optional=True)
+    if deploys is None:
+        deploys = api_get(inst, f"/deployments?per_page={count}&application_uuid={app_uuid}", optional=True)
+    if deploys is None:
+        deploys = []
 
     if not deploys:
         print("   Aucun déploiement trouvé.")
@@ -194,7 +321,7 @@ def cmd_deployments(config, instance_name, app_name, count):
 # ─── CLI ───────────────────────────────────────────────────────────────────
 
 def main():
-    config = load_config()
+    data = load_config()
 
     parser = argparse.ArgumentParser(description="Coolify CLI — statut des déploiements")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -202,9 +329,23 @@ def main():
     # instances
     sub.add_parser("instances", help="Liste les instances Coolify configurées")
 
+    # projects
+    p_projects = sub.add_parser("projects", help="Liste tous les projets d'une instance")
+    p_projects.add_argument("instance", help="Nom de l'instance")
+
+    # apps
+    p_apps = sub.add_parser("apps", help="Liste les applications d'un projet")
+    p_apps.add_argument("instance", help="Nom de l'instance")
+    p_apps.add_argument("project", help="Nom ou UUID du projet")
+
+    # discover
+    p_disc = sub.add_parser("discover", help="Découvre les apps d'un projet et met à jour la config")
+    p_disc.add_argument("instance", help="Nom de l'instance")
+    p_disc.add_argument("project", help="Nom ou UUID du projet")
+
     # status
     p_status = sub.add_parser("status", help="Statut actuel d'une application")
-    p_status.add_argument("instance", help="Nom de l'instance (ex: production)")
+    p_status.add_argument("instance", help="Nom de l'instance")
     p_status.add_argument("app", help="Nom de l'application (clé dans la config)")
 
     # deployments
@@ -216,11 +357,17 @@ def main():
     args = parser.parse_args()
 
     if args.command == "instances":
-        cmd_instances(config)
+        cmd_instances(data)
+    elif args.command == "projects":
+        cmd_projects(data, args.instance)
+    elif args.command == "apps":
+        cmd_apps(data, args.instance, args.project)
+    elif args.command == "discover":
+        cmd_discover(data, args.instance, args.project)
     elif args.command == "status":
-        cmd_status(config, args.instance, args.app)
+        cmd_status(data, args.instance, args.app)
     elif args.command == "deployments":
-        cmd_deployments(config, args.instance, args.app, args.count)
+        cmd_deployments(data, args.instance, args.app, args.count)
 
 
 if __name__ == "__main__":

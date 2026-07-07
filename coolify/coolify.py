@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-Coolify CLI — interroge l'état des déploiements sur une ou plusieurs instances Coolify.
+Coolify CLI — interroge, déploie et redémarre des applications sur une ou plusieurs instances Coolify.
 
 Usage:
   ./coolify.py instances                          # Liste les instances configurées
-  ./coolify.py projects <instance>                # Liste tous les projets
-  ./coolify.py apps <instance> <projet>           # Liste les apps d'un projet
-  ./coolify.py discover <instance> <projet>       # Découvre les apps and update config
-  ./coolify.py status <instance> <app_name>       # État actuel d'une app
-  ./coolify.py deployments <instance> <app_name>  # Derniers déploiements (5 par défaut)
-  ./coolify.py deployments <instance> <app_name> -n 10  # 10 derniers déploiements
+  ./coolify.py projects [instance]               # Liste tous les projets
+  ./coolify.py apps <project> [instance]          # Liste les apps d'un projet
+  ./coolify.py discover <project> [instance]      # Découvre les apps et met à jour la config
+  ./coolify.py status <app> [instance]            # État actuel d'une app
+  ./coolify.py deployments <app> [instance]       # Derniers déploiements (5 par défaut)
+  ./coolify.py deployments <app> [instance] -n 10 # 10 derniers déploiements
+  ./coolify.py deploy <app> [instance]            # Déclenche un déploiement
+  ./coolify.py deploy <app> [instance] -f         # Déploiement forcé (sans cache)
+  ./coolify.py restart <app> [instance]           # Redémarre une application
 """
 
 import argparse
@@ -68,6 +71,16 @@ def resolve_instance(data, instance_name=None):
     sys.exit(1)
 
 
+def resolve_app_uuid(inst, app_name):
+    """Résout le UUID d'une application à partir de son nom de clé config."""
+    app_uuid = inst.get("applications", {}).get(app_name)
+    if not app_uuid:
+        print(f"❌ App '{app_name}' inconnue sur '{inst['name']}'.")
+        print(f"   Disponibles : {', '.join(inst.get('applications', {}).keys())}")
+        sys.exit(1)
+    return app_uuid
+
+
 def find_project_uuid(inst, name_or_uuid):
     """Cherche un projet par nom ou UUID, retourne son UUID."""
     projects = api_get(inst, "/projects")
@@ -90,6 +103,38 @@ def api_get(instance, path, optional=False):
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        if optional and e.code == 404:
+            return None
+        body = e.read().decode()
+        print(f"❌ HTTP {e.code} sur {url}")
+        if body:
+            try:
+                detail = json.loads(body)
+                print(f"   {json.dumps(detail, indent=2)}")
+            except json.JSONDecodeError:
+                print(f"   {body}")
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"❌ Erreur réseau : {e.reason}")
+        sys.exit(1)
+
+
+def api_post(instance, path, data=None, optional=False):
+    """Effectue une requête POST sur l'API Coolify."""
+    url = f"{instance['url'].rstrip('/')}/api/v1{path}"
+    body = json.dumps(data or {}).encode()
+    req = urllib.request.Request(url, data=body, headers={
+        "Authorization": f"Bearer {instance['token']}",
+        "Content-Type": "application/json",
+    })
+    req.method = "POST"
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            raw = resp.read().decode()
+            if not raw:
+                return {}
+            return json.loads(raw)
     except urllib.error.HTTPError as e:
         if optional and e.code == 404:
             return None
@@ -140,6 +185,9 @@ def fmt_status(status):
         "queued": "⏳",
         "cancelled": "🚫",
         "in_progress": "🔄",
+        "restarting": "🔄",
+        "healthy": "✅",
+        "unhealthy": "⚠️",
     }
     icon = icons.get(status.lower(), "❓") if status else "❓"
     return f"{icon} {status or 'inconnu'}"
@@ -261,11 +309,7 @@ def cmd_discover(data, instance_name, project_ref):
 def cmd_status(data, instance_name, app_name):
     """Statut actuel d'une application"""
     inst = resolve_instance(data, instance_name)
-    app_uuid = inst.get("applications", {}).get(app_name)
-    if not app_uuid:
-        print(f"❌ App '{app_name}' inconnue sur '{instance_name}'.")
-        print(f"   Disponibles : {', '.join(inst.get('applications', {}).keys())}")
-        return
+    app_uuid = resolve_app_uuid(inst, app_name)
 
     inst_name = inst["name"]
     print(f"📊 Statut de « {app_name} » sur « {inst_name} »")
@@ -302,11 +346,7 @@ def cmd_status(data, instance_name, app_name):
 def cmd_deployments(data, instance_name, app_name, count):
     """Liste les N derniers déploiements d'une application"""
     inst = resolve_instance(data, instance_name)
-    app_uuid = inst.get("applications", {}).get(app_name)
-    if not app_uuid:
-        print(f"❌ App '{app_name}' inconnue sur '{instance_name}'.")
-        print(f"   Disponibles : {', '.join(inst.get('applications', {}).keys())}")
-        return
+    app_uuid = resolve_app_uuid(inst, app_name)
 
     deploys = api_get(inst, f"/applications/{app_uuid}/deployments?per_page={count}", optional=True)
     if deploys is None:
@@ -332,12 +372,76 @@ def cmd_deployments(data, instance_name, app_name, count):
         print()
 
 
+def cmd_deploy(data, instance_name, app_name, force=False):
+    """Déclenche un déploiement pour une application"""
+    inst = resolve_instance(data, instance_name)
+    app_uuid = resolve_app_uuid(inst, app_name)
+    inst_name = inst["name"]
+
+    body = {"force": True} if force else {}
+    label = "forcé 🚀" if force else "🚀"
+
+    print(f"🚀 Déploiement {label} de « {app_name} » sur « {inst_name} »")
+    print(f"   UUID : {app_uuid}")
+    print()
+
+    result = api_post(inst, f"/applications/{app_uuid}/deploy", data=body)
+
+    if result:
+        deployment_uuid = (
+            result.get("deployment_uuid")
+            or result.get("uuid")
+            or result.get("id")
+            or "-"
+        )
+
+        if deployment_uuid and deployment_uuid != "-":
+            print(f"   ✅ Déclenché — Deployment UUID : {deployment_uuid}")
+        else:
+            print(f"   ✅ Déploiement déclenché !")
+            print(f"   Réponse : {json.dumps(result, indent=4)}")
+    else:
+        print(f"   ✅ Déploiement déclenché !")
+
+    inst_name_display = resolve_instance(data, instance_name)["name"]
+    print()
+    print(f"   Vérifiez le statut avec :")
+    print(f"     ./coolify.py status {app_name} {inst_name if inst_name != inst_name_display else ''}")
+    print(f"     ./coolify.py deployments {app_name} {inst_name if inst_name != inst_name_display else ''}")
+    print()
+
+
+def cmd_restart(data, instance_name, app_name):
+    """Redémarre une application"""
+    inst = resolve_instance(data, instance_name)
+    app_uuid = resolve_app_uuid(inst, app_name)
+    inst_name = inst["name"]
+
+    print(f"🔄 Redémarrage de « {app_name} » sur « {inst_name} »")
+    print(f"   UUID : {app_uuid}")
+    print()
+
+    result = api_post(inst, f"/applications/{app_uuid}/restart")
+
+    if result:
+        status = result.get("status", result.get("message", "ok"))
+        print(f"   ✅ Redémarrage effectué — {status}")
+    else:
+        print(f"   ✅ Redémarrage effectué")
+
+    inst_name_display = resolve_instance(data, instance_name)["name"]
+    print()
+    print(f"   Vérifiez le statut avec :")
+    print(f"     ./coolify.py status {app_name} {inst_name if inst_name != inst_name_display else ''}")
+    print()
+
+
 # ─── CLI ───────────────────────────────────────────────────────────────────
 
 def main():
     data = load_config()
 
-    parser = argparse.ArgumentParser(description="Coolify CLI — statut des déploiements")
+    parser = argparse.ArgumentParser(description="Coolify CLI — statut, déploiement et redémarrage d'applications")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # instances
@@ -368,6 +472,17 @@ def main():
     p_deploy.add_argument("instance", nargs="?", default=None, help="Nom de l'instance (optionnel si une seule)")
     p_deploy.add_argument("-n", "--count", type=int, default=5, help="Nombre de déploiements (défaut: 5)")
 
+    # deploy
+    p_deploy_cmd = sub.add_parser("deploy", help="Déclenche un déploiement")
+    p_deploy_cmd.add_argument("app", help="Nom de l'application (clé dans la config)")
+    p_deploy_cmd.add_argument("instance", nargs="?", default=None, help="Nom de l'instance (optionnel si une seule)")
+    p_deploy_cmd.add_argument("-f", "--force", action="store_true", help="Déploiement forcé (sans cache)")
+
+    # restart
+    p_restart = sub.add_parser("restart", help="Redémarre une application")
+    p_restart.add_argument("app", help="Nom de l'application (clé dans la config)")
+    p_restart.add_argument("instance", nargs="?", default=None, help="Nom de l'instance (optionnel si une seule)")
+
     args = parser.parse_args()
 
     if args.command == "instances":
@@ -382,6 +497,10 @@ def main():
         cmd_status(data, args.instance, args.app)
     elif args.command == "deployments":
         cmd_deployments(data, args.instance, args.app, args.count)
+    elif args.command == "deploy":
+        cmd_deploy(data, args.instance, args.app, args.force)
+    elif args.command == "restart":
+        cmd_restart(data, args.instance, args.app)
 
 
 if __name__ == "__main__":

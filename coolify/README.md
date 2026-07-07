@@ -1,6 +1,6 @@
 # coolify
 
-CLI pour interroger l'état des déploiements sur des instances **Coolify**.
+CLI pour interroger, déployer et redémarrer des applications sur des instances **Coolify**.
 
 ## Installation
 
@@ -62,17 +62,29 @@ Contenu du fichier : un tableau d'instances Coolify.
 ./coolify.py instances
 
 # Statut actuel d'une app (infos + dernier déploiement)
-./coolify.py status production mon-app
+./coolify.py status mon-app [instance]
 
 # Derniers 5 déploiements d'une app
-./coolify.py deployments production mon-app
+./coolify.py deployments mon-app [instance]
 
 # Derniers 10 déploiements
-./coolify.py deployments production mon-app -n 10
+./coolify.py deployments mon-app [instance] -n 10
+
+# Déclencher un déploiement
+./coolify.py deploy mon-app [instance]
+
+# Déploiement forcé (sans cache)
+./coolify.py deploy mon-app [instance] -f
+
+# Redémarrer une application
+./coolify.py restart mon-app [instance]
 ```
 
-## Exemple de sortie
+[l'instance] est optionnelle si une seule instance est configurée.
 
+## Exemples de sortie
+
+### Status
 ```
 📊 Statut de « mon-app » sur « production »
    UUID : abc123-def456
@@ -90,6 +102,7 @@ Contenu du fichier : un tableau d'instances Coolify.
       Durée        : 2m 15s
 ```
 
+### Deployments
 ```
 📋 Derniers 5 déploiements de « mon-app » sur « production »
 
@@ -100,7 +113,45 @@ Contenu du fichier : un tableau d'instances Coolify.
      ID: dep-uuid-2
 ```
 
+### Deploy
+```
+🚀 Déploiement 🚀 de « mon-app » sur « production »
+   UUID : abc123-def456
+
+   ✅ Déclenché — Deployment UUID : dep-uuid-3
+
+   Vérifiez le statut avec :
+     ./coolify.py status mon-app
+     ./coolify.py deployments mon-app
+```
+
+### Restart
+```
+🔄 Redémarrage de « mon-app » sur « production »
+   UUID : abc123-def456
+
+   ✅ Redémarrage effectué — ok
+
+   Vérifiez le statut avec :
+     ./coolify.py status mon-app
+```
+
+## Commandes disponibles
+
+| Commande | Description |
+|----------|-------------|
+| `instances` | Liste les instances configurées |
+| `projects [instance]` | Liste tous les projets |
+| `apps <project> [instance]` | Liste les apps d'un projet |
+| `discover <project> [instance]` | Découvre les apps et met à jour la config |
+| `status <app> [instance]` | Statut actuel + dernier déploiement |
+| `deployments <app> [instance] [-n N]` | Historique des N derniers déploiements |
+| `deploy <app> [instance] [-f]` | Déclenche un déploiement (ou forcé) |
+| `restart <app> [instance]` | Redémarre l'application |
+
 ## API Coolify utilisée
 
 - `GET /api/v1/applications/{uuid}`
 - `GET /api/v1/applications/{uuid}/deployments?per_page=N`
+- `POST /api/v1/applications/{uuid}/deploy`
+- `POST /api/v1/applications/{uuid}/restart`

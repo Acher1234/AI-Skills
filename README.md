@@ -18,7 +18,7 @@ hermes-script/
 | Commande | Description | Langage |
 |----------|------------|---------|
 | `daily-raspy-report` | Rapport monitoring CPU/RAM/disk, livré tous les matins à 7h | bash |
-| `coolify` | CLI déploiements Coolify — status, logs, historique | python |
+| `coolify` | CLI déploiements Coolify — status, déploiement, redémarrage | python |
 
 ## 🚀 Utilisation
 

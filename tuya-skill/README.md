@@ -4,9 +4,8 @@ CLI Python pour interagir avec l'API **Tuya IoT** — contrôle d'appareils conn
 
 ## Installation
 
-Aucune dépendance externe — utilise uniquement la stdlib Python 3.
-
 ```bash
+pip install tuya-connector-python
 cp config.example.json config.json
 # Éditez config.json avec vos identifiants Tuya IoT
 ```

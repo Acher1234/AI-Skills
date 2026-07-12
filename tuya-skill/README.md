@@ -40,7 +40,3 @@ export TUYA_CONFIG_PATH=/root/.hermes/tuya-config.json
 # État d'un appareil
 ./tuya.py status <device_id>
 ```
-
-## Dépendances
-
-Voir [`dependencies.md`](dependencies.md).

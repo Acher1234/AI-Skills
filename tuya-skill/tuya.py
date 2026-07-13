@@ -5,7 +5,11 @@ Tuya CLI — interroge l'API Tuya IoT pour contrôler des appareils connectés.
 Usage:
   ./tuya.py token              # Génère et affiche un access token
   ./tuya.py devices             # Liste les appareils
-  ./tuya.py status <device_id>  # État d'un appareil
+  ./tuya.py state <device_id>   # État simplifié (ON/OFF)
+  ./tuya.py status <device_id>  # État complet
+  ./tuya.py on <device_id>      # Allumer
+  ./tuya.py off <device_id>     # Éteindre
+  ./tuya.py switch <device_id> [on/off]  # Basculer
 """
 
 import argparse
@@ -28,8 +32,6 @@ TUYA_BASE_URLS = {
 }
 
 
-# ─── Config ────────────────────────────────────────────────────────────────
-
 def load_config():
     if not os.path.exists(CONFIG_PATH):
         print(f"❌ Config introuvable : {CONFIG_PATH}")
@@ -40,7 +42,6 @@ def load_config():
 
 
 def get_client(config):
-    """Crée et connecte un client Tuya OpenAPI."""
     region = config.get("region", "eu")
     base_url = TUYA_BASE_URLS.get(region, TUYA_BASE_URLS["eu"])
     client = TuyaOpenAPI(base_url, config["access_id"], config["access_secret"])
@@ -54,11 +55,9 @@ def get_client(config):
 # ─── Commands ──────────────────────────────────────────────────────────────
 
 def cmd_token(config):
-    """Génère et affiche un access token."""
     region = config.get("region", "eu")
     base_url = TUYA_BASE_URLS.get(region, TUYA_BASE_URLS["eu"])
     client = TuyaOpenAPI(base_url, config["access_id"], config["access_secret"])
-    # connect() already fetched the token
     response = client.connect()
     result = response.get("result", {})
     token = result.get("access_token", "")
@@ -70,17 +69,12 @@ def cmd_token(config):
 
 
 def cmd_devices(config):
-    """Liste les appareils Tuya."""
     client = get_client(config)
-    project_code = config.get("project_code", "")
     response = client.get("/v2.0/cloud/thing/device?page_no=1&page_size=20")
-
     if not response.get("success"):
         print(f"❌ {response}")
         return
-
     result = response.get("result", {})
-    # v2.0 returns result as a dict with list and has_more, or directly as a list
     if isinstance(result, list):
         devices = result
     elif isinstance(result, dict):
@@ -90,37 +84,55 @@ def cmd_devices(config):
     if not devices:
         print("   Aucun appareil trouvé.")
         return
-
     print(f"📱 Appareils Tuya ({len(devices)}):")
     print()
     for d in devices:
-        print(f"  • {d.get('customName', d.get('name', '-'))}")
+        name = d.get('customName', d.get('name', '-'))
+        print(f"  • {name}")
         print(f"    ID       : {d.get('id', '-')}")
         print(f"    Model    : {d.get('model', '-')}")
         is_online = d.get("isOnline", d.get("online", False))
-        status_icon = "🟢 online" if is_online else "🔴 offline"
-        print(f"    Status   : {status_icon}")
-        if d.get("category"):
-            print(f"    Category : {d['category']}")
-        if d.get("productName"):
-            print(f"    Product  : {d['productName']}")
+        print(f"    Status   : {'🟢 online' if is_online else '🔴 offline'}")
         print()
 
 
-def cmd_status(config, device_id):
-    """Affiche l'état d'un appareil."""
+def cmd_state(config, device_id):
     client = get_client(config)
     response = client.get(f"/v1.0/devices/{device_id}/status")
-
     if not response.get("success"):
         print(f"❌ {response}")
         return
+    status = response.get("result", [])
+    switch = next((s for s in status if "switch" in s.get("code", "")), None)
+    if switch:
+        is_on = switch.get("value", False)
+        print(f"{'🟢 ON' if is_on else '🔴 OFF'}  |  {switch['code']} = {switch['value']}")
+    else:
+        for s in status:
+            print(f"  {s.get('code', '-'):20s} : {s.get('value', '-')}")
 
+
+def cmd_status(config, device_id):
+    client = get_client(config)
+    response = client.get(f"/v1.0/devices/{device_id}/status")
+    if not response.get("success"):
+        print(f"❌ {response}")
+        return
     status = response.get("result", [])
     print(f"📊 État de « {device_id} » :")
     print()
     for s in status:
         print(f"  {s.get('code', '-'):20s} : {s.get('value', '-')}")
+
+
+def cmd_switch(config, device_id, value):
+    client = get_client(config)
+    data = {"commands": [{"code": "switch_1", "value": value}]}
+    response = client.post(f"/v1.0/devices/{device_id}/commands", data)
+    if response.get("success"):
+        print(f"✅ {'🟢 ON' if value else '🔴 OFF'}  |  {device_id}")
+    else:
+        print(f"❌ {response}")
 
 
 # ─── CLI ───────────────────────────────────────────────────────────────────
@@ -130,11 +142,20 @@ def main():
     parser = argparse.ArgumentParser(description="Tuya CLI — contrôle des appareils Tuya IoT")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("token", help="Génère et affiche un access token")
+    sub.add_parser("token", help="Génère un access token")
     sub.add_parser("devices", help="Liste les appareils")
 
-    p_status = sub.add_parser("status", help="État d'un appareil")
-    p_status.add_argument("device_id", help="ID de l'appareil")
+    p_state = sub.add_parser("state", help="État simplifié (ON/OFF)")
+    p_state.add_argument("device_id")
+
+    p_status = sub.add_parser("status", help="État complet")
+    p_status.add_argument("device_id")
+
+    p_on = sub.add_parser("on", help="Allumer")
+    p_on.add_argument("device_id")
+
+    p_off = sub.add_parser("off", help="Éteindre")
+    p_off.add_argument("device_id")
 
     args = parser.parse_args()
 
@@ -142,8 +163,14 @@ def main():
         cmd_token(config)
     elif args.command == "devices":
         cmd_devices(config)
+    elif args.command == "state":
+        cmd_state(config, args.device_id)
     elif args.command == "status":
         cmd_status(config, args.device_id)
+    elif args.command == "on":
+        cmd_switch(config, args.device_id, True)
+    elif args.command == "off":
+        cmd_switch(config, args.device_id, False)
 
 
 if __name__ == "__main__":

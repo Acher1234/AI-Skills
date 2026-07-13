@@ -1,42 +1,41 @@
 # 🧰 Hermes Scripts
 
-> Collection de scripts CLI (shell / python / node) qu'Hermes Agent utilise sur la machine **kleinplex** (Raspberry Pi).
-> Chaque commande a son propre dossier avec un README dédié.
+> Collection de scripts CLI (shell / python / node) qu'Hermes Agent utilise sur la machine **kleinplex**.
+> Chaque commande a son propre dossier avec un README dédié et un fichier de dépendances.
 
 ## 📁 Structure
 
 ```
 hermes-script/
 ├── README.md               ← Ce fichier
-├── daily-raspy-report/     ← Rapport CPU/RAM/disque quotidien
+├── pc-daily-report/        ← Rapport CPU/RAM/disque quotidien
+│   ├── README.md           ← Documentation de la commande
+│   ├── dependencies.md     ← Dépendances requises
+│   └── pc-daily-report.sh  ← Le script
 ├── coolify/                ← CLI déploiements Coolify
-└── ...                     ← (À venir : tri filebot, deploiement, etc.)
+│   ├── README.md
+│   └── coolify.py
+└── ...                     ← (À venir : tri filebot, déploiement, etc.)
 ```
 
 ## 📋 Commandes actuelles
 
 | Commande | Description | Langage |
 |----------|------------|---------|
-| `daily-raspy-report` | Rapport monitoring CPU/RAM/disk, livré tous les matins à 7h | bash |
+| `pc-daily-report` | Rapport monitoring CPU/RAM/disk, livré tous les matins à 7h | bash |
 | `coolify` | CLI déploiements Coolify — status, déploiement, redémarrage | python |
 
 ## 🚀 Utilisation
 
-Chaque dossier contient :
-- Un **README** expliquant la commande
+Chaque sous-projet contient :
+- Un **README.md** expliquant la commande, son usage et des exemples
+- Un **dependencies.md** listant les dépendances système requises
 - Le **script** exécutable
 
 Les scripts sont conçus pour être appelés :
 - Manuellement en CLI
 - Via un cron job Hermes (`cronjob` action)
 - Ou directement en shell
-
-## 📦 Dépendances système
-
-- `sysstat` (sar) — collecte des métriques CPU/RAM
-- `filebot` — tri des films/séries
-- `chromium-browser` — génération PDF (snap)
-- `node` / `npm` — pour les scripts Node
 
 ---
 

@@ -5,8 +5,8 @@ Tuya CLI — interroge l'API Tuya IoT pour contrôler des appareils connectés.
 Usage:
   ./tuya.py token                    # Génère un access token
   ./tuya.py devices                   # Liste tous les appareils
-  ./tuya.py status <device_id>        # L'appareil est-il disponible ? (online/offline)
-  ./tuya.py state <device_id>         # État détaillé (ON/OFF, température, vitesse...)
+  ./tuya.py status <device_id>        # Disponibilité (online/offline)
+  ./tuya.py state <device_id>         # État détaillé avec labels humains
   ./tuya.py on <device_id>            # Allumer
   ./tuya.py off <device_id>           # Éteindre
   ./tuya.py rename <device_id> <nom>  # Renommer
@@ -31,6 +31,15 @@ TUYA_BASE_URLS = {
     "in": "https://openapi.tuyain.com",
 }
 
+# Human-readable labels
+STATE_LABELS = {
+    "power": "🔌 Power", "mode": "🔄 Mode", "temp": "🌡️ Temp",
+    "wind": "💨 Wind", "switch_1": "🔌 Switch", "switch_2": "🔌 Switch 2",
+    "child_lock": "🔒 Child Lock", "countdown_1": "⏱ Countdown",
+}
+STATE_MODES = {"0": "auto", "1": "cool", "2": "heat", "3": "fan", "4": "dry"}
+STATE_WINDS = {"0": "low", "1": "medium", "2": "high"}
+
 
 def load_config():
     if not os.path.exists(CONFIG_PATH):
@@ -50,6 +59,18 @@ def get_client(config):
         print(f"❌ Connexion échouée : {response}")
         sys.exit(1)
     return client
+
+
+def _human_value(code, value):
+    """Convertit une valeur brute en libellé lisible."""
+    raw = str(value)
+    if isinstance(value, bool):
+        return "🟢 ON" if value else "🔴 OFF"
+    if code == "mode":
+        return STATE_MODES.get(raw, raw)
+    if code == "wind":
+        return STATE_WINDS.get(raw, raw)
+    return value
 
 
 # ─── Commands ──────────────────────────────────────────────────────────────
@@ -121,7 +142,7 @@ def cmd_status(config, device_id):
 
 
 def cmd_state(config, device_id):
-    """État détaillé (ON/OFF, température, vitesse...)."""
+    """État détaillé avec labels humains."""
     client = get_client(config)
     response = client.get(f"/v1.0/devices/{device_id}/status")
     if not response.get("success"):
@@ -132,10 +153,9 @@ def cmd_state(config, device_id):
     print()
     for s in status:
         code = s.get("code", "-")
-        value = s.get("value", "-")
-        if isinstance(value, bool):
-            value = "🟢 ON" if value else "🔴 OFF"
-        print(f"  {code:25s} : {value}")
+        label = STATE_LABELS.get(code, code)
+        value = _human_value(code, s.get("value", "-"))
+        print(f"  {label:20s} : {value}")
 
 
 def cmd_switch(config, device_id, value):
@@ -171,7 +191,7 @@ def main():
     p_status = sub.add_parser("status", help="Disponibilité (online/offline)")
     p_status.add_argument("device_id")
 
-    p_state = sub.add_parser("state", help="État détaillé (ON/OFF, température...)")
+    p_state = sub.add_parser("state", help="État détaillé avec labels")
     p_state.add_argument("device_id")
 
     p_on = sub.add_parser("on", help="Allumer")

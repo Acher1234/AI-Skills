@@ -3,13 +3,13 @@
 Tuya CLI — interroge l'API Tuya IoT pour contrôler des appareils connectés.
 
 Usage:
-  ./tuya.py token              # Génère et affiche un access token
-  ./tuya.py devices             # Liste les appareils
-  ./tuya.py state <device_id>   # État simplifié (ON/OFF)
-  ./tuya.py status <device_id>  # État complet
-  ./tuya.py on <device_id>      # Allumer
-  ./tuya.py off <device_id>     # Éteindre
-  ./tuya.py switch <device_id> [on/off]  # Basculer
+  ./tuya.py token                    # Génère et affiche un access token
+  ./tuya.py devices                   # Liste les appareils
+  ./tuya.py state <device_id>         # État simplifié (ON/OFF)
+  ./tuya.py status <device_id>        # État complet
+  ./tuya.py on <device_id>            # Allumer
+  ./tuya.py off <device_id>           # Éteindre
+  ./tuya.py rename <device_id> <nom>  # Renommer l'appareil
 """
 
 import argparse
@@ -135,6 +135,16 @@ def cmd_switch(config, device_id, value):
         print(f"❌ {response}")
 
 
+def cmd_rename(config, device_id, new_name):
+    client = get_client(config)
+    data = {"name": new_name}
+    response = client.put(f"/v1.0/devices/{device_id}", data)
+    if response.get("success"):
+        print(f"✅ Renommé → « {new_name} »  |  {device_id}")
+    else:
+        print(f"❌ {response}")
+
+
 # ─── CLI ───────────────────────────────────────────────────────────────────
 
 def main():
@@ -157,6 +167,10 @@ def main():
     p_off = sub.add_parser("off", help="Éteindre")
     p_off.add_argument("device_id")
 
+    p_rename = sub.add_parser("rename", help="Renommer un appareil")
+    p_rename.add_argument("device_id")
+    p_rename.add_argument("name", help="Nouveau nom")
+
     args = parser.parse_args()
 
     if args.command == "token":
@@ -171,6 +185,8 @@ def main():
         cmd_switch(config, args.device_id, True)
     elif args.command == "off":
         cmd_switch(config, args.device_id, False)
+    elif args.command == "rename":
+        cmd_rename(config, args.device_id, args.name)
 
 
 if __name__ == "__main__":

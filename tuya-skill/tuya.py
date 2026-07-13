@@ -6,7 +6,7 @@ Usage:
   ./tuya.py token                    # Génère un access token
   ./tuya.py devices                   # Liste tous les appareils
   ./tuya.py status <device_id>        # Disponibilité (online/offline)
-  ./tuya.py state <device_id>         # État détaillé avec labels humains
+  ./tuya.py state <device_id>         # État détaillé avec labels
   ./tuya.py on <device_id>            # Allumer
   ./tuya.py off <device_id>           # Éteindre
   ./tuya.py rename <device_id> <nom>  # Renommer
@@ -31,14 +31,14 @@ TUYA_BASE_URLS = {
     "in": "https://openapi.tuyain.com",
 }
 
-# Human-readable labels
 STATE_LABELS = {
     "power": "🔌 Power", "mode": "🔄 Mode", "temp": "🌡️ Temp",
     "wind": "💨 Wind", "switch_1": "🔌 Switch", "switch_2": "🔌 Switch 2",
     "child_lock": "🔒 Child Lock", "countdown_1": "⏱ Countdown",
+    "fan": "💨 Fan",
 }
 STATE_MODES = {"0": "auto", "1": "cool", "2": "heat", "3": "fan", "4": "dry"}
-STATE_WINDS = {"0": "low", "1": "medium", "2": "high"}
+STATE_WINDS = {"0": "low", "1": "mid", "2": "high", "3": "auto"}
 
 
 def load_config():
@@ -62,13 +62,12 @@ def get_client(config):
 
 
 def _human_value(code, value):
-    """Convertit une valeur brute en libellé lisible."""
     raw = str(value)
     if isinstance(value, bool):
         return "🟢 ON" if value else "🔴 OFF"
     if code == "mode":
         return STATE_MODES.get(raw, raw)
-    if code == "wind":
+    if code in ("wind", "fan"):
         return STATE_WINDS.get(raw, raw)
     return value
 
@@ -118,7 +117,6 @@ def cmd_devices(config):
 
 
 def cmd_status(config, device_id):
-    """Disponibilité de l'appareil (online/offline)."""
     client = get_client(config)
     response = client.get("/v2.0/cloud/thing/device?page_no=1&page_size=20")
     if not response.get("success"):
@@ -142,7 +140,6 @@ def cmd_status(config, device_id):
 
 
 def cmd_state(config, device_id):
-    """État détaillé avec labels humains."""
     client = get_client(config)
     response = client.get(f"/v1.0/devices/{device_id}/status")
     if not response.get("success"):
@@ -160,12 +157,14 @@ def cmd_state(config, device_id):
 
 def cmd_switch(config, device_id, value):
     client = get_client(config)
-    data = {"commands": [{"code": "switch_1", "value": value}]}
-    response = client.post(f"/v1.0/devices/{device_id}/commands", data)
-    if response.get("success"):
-        print(f"✅ {'🟢 ON' if value else '🔴 OFF'}  |  {device_id}")
-    else:
-        print(f"❌ {response}")
+    # Pour plugs: switch_1, pour clims IR: switch
+    for code in ("switch_1", "switch"):
+        data = {"commands": [{"code": code, "value": value}]}
+        response = client.post(f"/v1.0/devices/{device_id}/commands", data)
+        if response.get("success"):
+            print(f"✅ {'🟢 ON' if value else '🔴 OFF'}  |  {device_id}")
+            return
+    print(f"❌ {response}")
 
 
 def cmd_rename(config, device_id, new_name):

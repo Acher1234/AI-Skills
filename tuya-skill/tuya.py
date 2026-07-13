@@ -73,7 +73,7 @@ def cmd_devices(config):
     """Liste les appareils Tuya."""
     client = get_client(config)
     project_code = config.get("project_code", "")
-    response = client.get(f"/v1.0/devices?project_code={project_code}")
+    response = client.get(f"/v2.0/cloud/thing/device")
 
     if not response.get("success"):
         print(f"❌ {response}")

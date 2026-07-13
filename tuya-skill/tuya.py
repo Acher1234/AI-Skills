@@ -3,13 +3,13 @@
 Tuya CLI — interroge l'API Tuya IoT pour contrôler des appareils connectés.
 
 Usage:
-  ./tuya.py token                    # Génère et affiche un access token
-  ./tuya.py devices                   # Liste les appareils
-  ./tuya.py state <device_id>         # État simplifié (ON/OFF)
-  ./tuya.py status <device_id>        # État complet
+  ./tuya.py token                    # Génère un access token
+  ./tuya.py devices                   # Liste tous les appareils
+  ./tuya.py status <device_id>        # L'appareil est-il disponible ? (online/offline)
+  ./tuya.py state <device_id>         # État détaillé (ON/OFF, température, vitesse...)
   ./tuya.py on <device_id>            # Allumer
   ./tuya.py off <device_id>           # Éteindre
-  ./tuya.py rename <device_id> <nom>  # Renommer l'appareil
+  ./tuya.py rename <device_id> <nom>  # Renommer
 """
 
 import argparse
@@ -87,7 +87,7 @@ def cmd_devices(config):
     print(f"📱 Appareils Tuya ({len(devices)}):")
     print()
     for d in devices:
-        name = d.get('customName', d.get('name', '-'))
+        name = d.get("customName", d.get("name", "-"))
         print(f"  • {name}")
         print(f"    ID       : {d.get('id', '-')}")
         print(f"    Model    : {d.get('model', '-')}")
@@ -96,23 +96,32 @@ def cmd_devices(config):
         print()
 
 
-def cmd_state(config, device_id):
+def cmd_status(config, device_id):
+    """Disponibilité de l'appareil (online/offline)."""
     client = get_client(config)
-    response = client.get(f"/v1.0/devices/{device_id}/status")
+    response = client.get("/v2.0/cloud/thing/device?page_no=1&page_size=20")
     if not response.get("success"):
         print(f"❌ {response}")
         return
-    status = response.get("result", [])
-    switch = next((s for s in status if "switch" in s.get("code", "")), None)
-    if switch:
-        is_on = switch.get("value", False)
-        print(f"{'🟢 ON' if is_on else '🔴 OFF'}  |  {switch['code']} = {switch['value']}")
-    else:
-        for s in status:
-            print(f"  {s.get('code', '-'):20s} : {s.get('value', '-')}")
+    result = response.get("result", [])
+    if isinstance(result, dict):
+        result = result.get("list", [])
+    device = next((d for d in result if d.get("id") == device_id), None)
+    if not device:
+        print(f"❌ Appareil {device_id} introuvable.")
+        return
+    name = device.get("customName", device.get("name", "-"))
+    is_online = device.get("isOnline", False)
+    status_str = "🟢 ONLINE" if is_online else "🔴 OFFLINE"
+    print(f"{status_str}  |  {name}")
+    print(f"   Model    : {device.get('model', '-')}")
+    print(f"   Product  : {device.get('productName', '-')}")
+    if device.get("ip"):
+        print(f"   IP       : {device['ip']}")
 
 
-def cmd_status(config, device_id):
+def cmd_state(config, device_id):
+    """État détaillé (ON/OFF, température, vitesse...)."""
     client = get_client(config)
     response = client.get(f"/v1.0/devices/{device_id}/status")
     if not response.get("success"):
@@ -122,7 +131,11 @@ def cmd_status(config, device_id):
     print(f"📊 État de « {device_id} » :")
     print()
     for s in status:
-        print(f"  {s.get('code', '-'):20s} : {s.get('value', '-')}")
+        code = s.get("code", "-")
+        value = s.get("value", "-")
+        if isinstance(value, bool):
+            value = "🟢 ON" if value else "🔴 OFF"
+        print(f"  {code:25s} : {value}")
 
 
 def cmd_switch(config, device_id, value):
@@ -140,7 +153,7 @@ def cmd_rename(config, device_id, new_name):
     data = {"name": new_name}
     response = client.put(f"/v1.0/devices/{device_id}", data)
     if response.get("success"):
-        print(f"✅ Renommé → « {new_name} »  |  {device_id}")
+        print(f"✅ Renommé → « {new_name} »  |  {device_id}")
     else:
         print(f"❌ {response}")
 
@@ -155,11 +168,11 @@ def main():
     sub.add_parser("token", help="Génère un access token")
     sub.add_parser("devices", help="Liste les appareils")
 
-    p_state = sub.add_parser("state", help="État simplifié (ON/OFF)")
-    p_state.add_argument("device_id")
-
-    p_status = sub.add_parser("status", help="État complet")
+    p_status = sub.add_parser("status", help="Disponibilité (online/offline)")
     p_status.add_argument("device_id")
+
+    p_state = sub.add_parser("state", help="État détaillé (ON/OFF, température...)")
+    p_state.add_argument("device_id")
 
     p_on = sub.add_parser("on", help="Allumer")
     p_on.add_argument("device_id")
@@ -177,10 +190,10 @@ def main():
         cmd_token(config)
     elif args.command == "devices":
         cmd_devices(config)
-    elif args.command == "state":
-        cmd_state(config, args.device_id)
     elif args.command == "status":
         cmd_status(config, args.device_id)
+    elif args.command == "state":
+        cmd_state(config, args.device_id)
     elif args.command == "on":
         cmd_switch(config, args.device_id, True)
     elif args.command == "off":

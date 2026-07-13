@@ -1,42 +1,125 @@
 # tuya-skill
 
-CLI Python pour interagir avec l'API **Tuya IoT** — contrôle d'appareils connectés.
+> 🌐 *Version française : [README-FR.md](README-FR.md)*
+
+Python CLI to interact with the **Tuya IoT** API — control smart devices (plugs, IR air conditioners, etc.).
 
 ## Installation
 
 ```bash
 pip install tuya-connector-python
 cp config.example.json config.json
-# Éditez config.json avec vos identifiants Tuya IoT
+# Edit config.json with your Tuya IoT credentials
 ```
 
 ## Configuration
 
-Le fichier `config.json` (non versionné, `.gitignore`) contient :
+The `config.json` file (not versioned, `.gitignore`) contains:
 
-| Champ | Description |
+| Field | Description |
 |-------|-------------|
 | `auth_key` | Authorization Key (Tuya IoT Platform) |
 | `access_id` | Access ID / Client ID |
 | `access_secret` | Access Secret / Client Secret |
 | `project_code` | Project Code (Tuya IoT Platform) |
-| `region` | Région : `eu`, `us`, `cn`, `in` |
+| `region` | Region: `eu`, `us`, `cn`, `in` |
 
-Vous pouvez placer le fichier ailleurs et pointer via la variable d'environnement :
+You can place the file elsewhere and point to it via the environment variable:
 
 ```bash
 export TUYA_CONFIG_PATH=/root/.hermes/tuya-config.json
 ```
 
-## Utilisation
+## Usage
 
 ```bash
-# Générer un access token
+# Generate an access token (authentication test)
 ./tuya.py token
 
-# Lister les appareils
+# List all devices (name, ID, model, status)
 ./tuya.py devices
 
-# État d'un appareil
+# Availability of a device (online / offline)
 ./tuya.py status <device_id>
+
+# Detailed state with readable labels (mode, speed, temperature...)
+./tuya.py state <device_id>
+
+# Turn a device on
+./tuya.py on <device_id>
+
+# Turn a device off
+./tuya.py off <device_id>
+
+# Rename a device
+./tuya.py rename <device_id> "New name"
 ```
+
+## Available commands
+
+| Command | Description |
+|---------|-------------|
+| `token` | Generate an access token (verifies credentials) |
+| `devices` | List all devices on the account |
+| `status <device_id>` | Availability: `🟢 online` / `🔴 offline` |
+| `state <device_id>` | Detailed state (power, mode, temp, wind...) with labels |
+| `on <device_id>` | Turn the device on |
+| `off <device_id>` | Turn the device off |
+| `rename <device_id> <name>` | Rename the device |
+
+> `on` / `off` automatically detect the right command code:
+> `switch_1` for plugs, `switch` for IR air conditioners.
+
+## Sample output
+
+### devices
+```
+📱 Tuya devices (2):
+
+  • Living room plug
+    ID       : bfxxxxxxxxxxxxxxxxxx
+    Model    : SP-01
+    Status   : 🟢 online
+
+  • Bedroom AC
+    ID       : bfyyyyyyyyyyyyyyyyyy
+    Model    : IR-AC
+    Status   : 🔴 offline
+```
+
+### state
+```
+📊 State of "bfxxxxxxxxxxxxxxxxxx":
+
+  🔌 Switch            : 🟢 ON
+  🔄 Mode              : cool
+  🌡️ Temp             : 22
+  💨 Wind              : auto
+```
+
+## Value mapping
+
+| Code | Values |
+|------|--------|
+| `mode` | `0` auto · `1` cool · `2` heat · `3` fan · `4` dry |
+| `wind` / `fan` | `0` low · `1` mid · `2` high · `3` auto |
+
+## Tuya regions (endpoints)
+
+| Region | Base URL |
+|--------|----------|
+| `eu` | `https://openapi.tuyaeu.com` |
+| `us` | `https://openapi.tuyaus.com` |
+| `cn` | `https://openapi.tuyacn.com` |
+| `in` | `https://openapi.tuyain.com` |
+
+## Dependencies
+
+See [`dependencies.md`](dependencies.md) for the full list.
+
+## Tuya API used
+
+- `GET /v2.0/cloud/thing/device` — device list
+- `GET /v1.0/devices/{id}/status` — detailed state
+- `POST /v1.0/devices/{id}/commands` — send commands (on/off)
+- `PUT /v1.0/devices/{id}` — rename

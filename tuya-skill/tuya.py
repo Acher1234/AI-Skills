@@ -73,13 +73,20 @@ def cmd_devices(config):
     """Liste les appareils Tuya."""
     client = get_client(config)
     project_code = config.get("project_code", "")
-    response = client.get(f"/v2.0/cloud/thing/device")
+    response = client.get("/v2.0/cloud/thing/device?page_no=1&page_size=20")
 
     if not response.get("success"):
         print(f"❌ {response}")
         return
 
-    devices = response.get("result", {}).get("devices", [])
+    result = response.get("result", {})
+    # v2.0 returns result as a dict with list and has_more, or directly as a list
+    if isinstance(result, list):
+        devices = result
+    elif isinstance(result, dict):
+        devices = result.get("list", result.get("devices", []))
+    else:
+        devices = []
     if not devices:
         print("   Aucun appareil trouvé.")
         return
@@ -87,11 +94,16 @@ def cmd_devices(config):
     print(f"📱 Appareils Tuya ({len(devices)}):")
     print()
     for d in devices:
-        print(f"  • {d.get('name', '-')}")
+        print(f"  • {d.get('customName', d.get('name', '-'))}")
         print(f"    ID       : {d.get('id', '-')}")
         print(f"    Model    : {d.get('model', '-')}")
-        status = "🟢 online" if d.get("online") else "🔴 offline"
-        print(f"    Status   : {status}")
+        is_online = d.get("isOnline", d.get("online", False))
+        status_icon = "🟢 online" if is_online else "🔴 offline"
+        print(f"    Status   : {status_icon}")
+        if d.get("category"):
+            print(f"    Category : {d['category']}")
+        if d.get("productName"):
+            print(f"    Product  : {d['productName']}")
         print()
 
 

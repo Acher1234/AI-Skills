@@ -1,0 +1,22 @@
+{
+  "zpa": {
+    "client_id": "YOUR_ZPA_CLIENT_ID",
+    "client_secret": "YOUR_ZPA_CLIENT_SECRET",
+    "customer_id": "YOUR_ZPA_CUSTOMER_ID",
+    "cloud": "PRODUCTION",
+    "microtenant_id": ""
+  },
+  "zia": {
+    "username": "YOUR_ZIA_USERNAME",
+    "password": "YOUR_ZIA_PASSWORD",
+    "api_key": "YOUR_ZIA_API_KEY",
+    "cloud": "zscaler"
+  },
+  "zidentity": {
+    "client_id": "YOUR_ZSCALER_CLIENT_ID",
+    "client_secret": "YOUR_ZSCALER_CLIENT_SECRET",
+    "vanity_domain": "YOUR_VANITY_DOMAIN",
+    "cloud": "",
+    "customer_id": ""
+  }
+}

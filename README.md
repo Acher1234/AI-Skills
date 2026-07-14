@@ -19,6 +19,11 @@ hermes-script/
 ├── coolify/                ← CLI déploiements Coolify
 │   ├── README.md
 │   └── coolify.py
+├── zscaler/                ← CLI Zscaler (ZPA / ZIA / ZIdentity)
+│   ├── README.md           ← Documentation (EN)
+│   ├── README-FR.md        ← Documentation (FR)
+│   ├── dependencies.md
+│   └── cli.py              ← + zpa.py / zia.py / zidentity.py
 └── ...                     ← (À venir : tri filebot, déploiement, etc.)
 ```
 
@@ -40,6 +45,7 @@ Détails et installation de `gitleaks` : voir [`dependencies.md`](dependencies.m
 |----------|------------|---------|
 | `pc-daily-report` | Rapport monitoring CPU/RAM/disk, livré tous les matins à 7h | bash |
 | `coolify` | CLI déploiements Coolify — status, déploiement, redémarrage | python |
+| `zscaler` | CLI Zscaler — administration ZPA / ZIA / ZIdentity | python |
 
 ## 🚀 Utilisation
 

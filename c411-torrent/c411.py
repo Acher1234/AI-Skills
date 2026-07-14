@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-C411 CLI — recherche de torrents via l'API C411 (Torznab).
+C411 CLI — recherche et téléchargement de torrents via l'API C411 (Torznab).
 
 Usage:
   ./c411.py search <query> [--cat CAT] [--limit N]
+  ./c411.py download <torrent_url_or_hash>
 """
 
 import argparse
@@ -100,10 +101,52 @@ def cmd_search(config, query, category, limit):
         print()
 
 
+def cmd_download(config, url_or_hash):
+    download_path = config.get("download_path", "/home/data/disk1/torrents")
+    os.makedirs(download_path, exist_ok=True)
+
+    # If it's a hash (40 hex chars), build the full URL
+    if len(url_or_hash) == 40 and all(c in "0123456789abcdefABCDEF" for c in url_or_hash):
+        url = f"{config['url'].rstrip('/')}/torrents/{url_or_hash}"
+    else:
+        url = url_or_hash
+
+    # Build download URL with API key
+    parsed = urllib.parse.urlparse(url)
+    torrent_id = parsed.path.rstrip("/").split("/")[-1]
+    download_url = f"{config['url'].rstrip('/')}/api?apikey={config['api_key']}&t=download&id={torrent_id}"
+
+    print(f"⬇️  Téléchargement : {torrent_id}...")
+
+    req = urllib.request.Request(download_url, headers={
+        "User-Agent": "Mozilla/5.0 (compatible; Hermes-C411/1.0)"
+    })
+    try:
+        resp = urllib.request.urlopen(req, timeout=60)
+        content = resp.read()
+
+        # Get filename from Content-Disposition header
+        filename = None
+        cd = resp.getheader("Content-Disposition", "")
+        if "filename=" in cd:
+            filename = cd.split("filename=")[-1].strip('"').strip("'")
+
+        if not filename:
+            filename = f"{torrent_id}.torrent"
+
+        filepath = os.path.join(download_path, filename)
+        with open(filepath, "wb") as f:
+            f.write(content)
+
+        print(f"✅ Sauvegardé : {filepath} ({fmt_size(len(content))})")
+    except urllib.error.HTTPError as e:
+        print(f"❌ HTTP {e.code}: {e.read().decode()}")
+
+
 # ─── CLI ───────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="C411 CLI — recherche de torrents")
+    parser = argparse.ArgumentParser(description="C411 CLI — recherche et téléchargement")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("search", help="Rechercher des torrents")
@@ -111,11 +154,16 @@ def main():
     p.add_argument("--cat", choices=list(CATEGORIES.keys()), default="all", help="Catégorie")
     p.add_argument("--limit", type=int, default=10, help="Nombre de résultats")
 
+    d = sub.add_parser("download", help="Télécharger un .torrent (URL ou hash)")
+    d.add_argument("url_or_hash", help="URL complète ou hash de 40 caractères")
+
     args = parser.parse_args()
     config = load_config()
 
     if args.command == "search":
         cmd_search(config, args.query, getattr(args, "cat", "all"), args.limit)
+    elif args.command == "download":
+        cmd_download(config, args.url_or_hash)
 
 
 if __name__ == "__main__":

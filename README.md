@@ -1,6 +1,6 @@
 # 🧰 Hermes Scripts
 
-> Collection de scripts CLI (shell / python / node) qu'Hermes Agent utilise sur la machine **kleinplex**.
+> Collection de scripts CLI (shell / python / node) qu'Hermes Agent utilise sur hermes.
 > Chaque commande a son propre dossier avec un README dédié et un fichier de dépendances.
 
 ## 📁 Structure

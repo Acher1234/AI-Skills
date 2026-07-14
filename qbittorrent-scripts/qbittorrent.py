@@ -5,11 +5,13 @@ qBittorrent CLI — gère les torrents via l'API WebUI qBittorrent.
 Usage:
   ./qbittorrent.py list [--filter STATUS] [--category CAT]
   ./qbittorrent.py add <magnet_or_url> [--category CAT] [--paused]
+  ./qbittorrent.py add-file <path> [--category CAT] [--paused]
   ./qbittorrent.py info <hash>
+  ./qbittorrent.py files <hash>
   ./qbittorrent.py pause <hash|all>
   ./qbittorrent.py resume <hash|all>
   ./qbittorrent.py delete <hash> [--files]
-  ./qbittorrent.py categories | tags | transfer | speedlimit | version
+  ./qbittorrent.py categories | tags | transfer | version
 """
 
 import argparse
@@ -51,7 +53,10 @@ def load_config():
 
 def login(config):
     url = config["url"].rstrip("/")
-    data = urllib.parse.urlencode({"username": config["username"], "password": config["password"]}).encode()
+    data = urllib.parse.urlencode({
+        "username": config["username"],
+        "password": config["password"],
+    }).encode()
     cj = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
     resp = opener.open(f"{url}/api/v2/auth/login", data=data, timeout=10)
@@ -91,7 +96,7 @@ def fmt_size(b):
     return f"{b:.1f} PB"
 
 def fmt_speed(bps):
-    return fmt_size(bps) + "/s" if bps < 1024 else fmt_size(bps) + "/s"
+    return fmt_size(bps) + "/s"
 
 def fmt_progress(p):
     return f"{p*100:.1f}%"
@@ -135,6 +140,45 @@ def cmd_add(config, magnet, category, paused):
         print(f"✅ Torrent ajouté : {magnet[:60]}...")
 
 
+def cmd_add_file(config, path, category, paused):
+    if not os.path.exists(path):
+        print(f"❌ Fichier introuvable : {path}")
+        return
+    url, op = login(config)
+    boundary = "----QBITTORRENTCLI"
+    with open(path, "rb") as f:
+        file_content = f.read()
+    filename = os.path.basename(path)
+
+    # Build form-data manually (stdlib, no extra deps)
+    body_parts = [
+        f"--{boundary}",
+        f'Content-Disposition: form-data; name="torrents"; filename="{filename}"',
+        "Content-Type: application/x-bittorrent",
+        "",
+    ]
+    body = "\r\n".join(body_parts).encode() + b"\r\n" + file_content + f"\r\n--{boundary}--\r\n".encode()
+
+    full_url = f"{url}/api/v2/torrents/add"
+    req = urllib.request.Request(
+        full_url,
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
+    )
+    try:
+        # Build a new opener based on the same cookie jar
+        cj_opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(op.__dict__.get("cookiejar", None))
+        ) if hasattr(op, "handlers") else op
+        resp = cj_opener.open(req, timeout=30)
+        resp.read()
+        print(f"✅ Fichier ajouté : {path}")
+    except urllib.error.HTTPError as e:
+        print(f"❌ HTTP {e.code}: {e.read().decode()}")
+    except Exception as e:
+        print(f"❌ Erreur: {e}")
+
+
 def cmd_info(config, hash_val):
     url, op = login(config)
     info = api_get(url, op, f"/torrents/properties?hash={hash_val}")
@@ -160,7 +204,7 @@ def cmd_control(config, action, hash_val, delete_files=False):
         data = {"hashes": hash_val, "deleteFiles": str(delete_files).lower()}
         ok = api_post(url, op, f"/torrents/{action}", data)
     else:
-        ok = api_post(url, op, f"/torrents/{action}") if hash_val == "all" else api_post(url, op, f"/torrents/{action}", {"hashes": hash_val})
+        ok = api_post(url, op, f"/torrents/{action}", {"hashes": hash_val})
     if ok:
         print(f"✅ {action.capitalize()} : {hash_val}")
 
@@ -201,35 +245,40 @@ def main():
     parser = argparse.ArgumentParser(description="qBittorrent CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_list = sub.add_parser("list", help="Liste les torrents")
+    p_list = sub.add_parser("list", help="List torrents / Lister les torrents")
     p_list.add_argument("--filter", choices=STATUS_FILTERS, default="all")
     p_list.add_argument("--category")
 
-    p_add = sub.add_parser("add", help="Ajouter magnet/URL")
+    p_add = sub.add_parser("add", help="Add torrent by magnet/URL / Ajouter par magnet/URL")
     p_add.add_argument("magnet")
     p_add.add_argument("--category")
     p_add.add_argument("--paused", action="store_true")
 
-    p_info = sub.add_parser("info", help="Propriétés")
+    p_af = sub.add_parser("add-file", help="Add torrent by .torrent file / Ajouter par fichier .torrent")
+    p_af.add_argument("path")
+    p_af.add_argument("--category")
+    p_af.add_argument("--paused", action="store_true")
+
+    p_info = sub.add_parser("info", help="Torrent properties / Propriétés")
     p_info.add_argument("hash")
 
-    p_files = sub.add_parser("files", help="Fichiers d'un torrent")
+    p_files = sub.add_parser("files", help="Torrent files / Fichiers du torrent")
     p_files.add_argument("hash")
 
-    p_pause = sub.add_parser("pause", help="Pause")
+    p_pause = sub.add_parser("pause", help="Pause torrent")
     p_pause.add_argument("hash")
 
-    p_resume = sub.add_parser("resume", help="Reprendre")
+    p_resume = sub.add_parser("resume", help="Resume torrent / Reprendre")
     p_resume.add_argument("hash")
 
-    p_del = sub.add_parser("delete", help="Supprimer")
+    p_del = sub.add_parser("delete", help="Delete torrent / Supprimer")
     p_del.add_argument("hash")
     p_del.add_argument("--files", action="store_true")
 
-    sub.add_parser("categories")
-    sub.add_parser("tags")
-    sub.add_parser("transfer")
-    sub.add_parser("version")
+    sub.add_parser("categories", help="List categories / Catégories")
+    sub.add_parser("tags", help="List tags / Tags")
+    sub.add_parser("transfer", help="Transfer info / Infos de transfert")
+    sub.add_parser("version", help="qBittorrent version")
 
     args = parser.parse_args()
     config = load_config()
@@ -239,6 +288,8 @@ def main():
         cmd_list(config, args.filter, getattr(args, "category", None))
     elif cmd == "add":
         cmd_add(config, args.magnet, getattr(args, "category", None), getattr(args, "paused", False))
+    elif cmd == "add-file":
+        cmd_add_file(config, args.path, getattr(args, "category", None), getattr(args, "paused", False))
     elif cmd == "info":
         cmd_info(config, args.hash)
     elif cmd == "files":

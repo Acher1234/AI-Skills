@@ -396,7 +396,7 @@ def set_user_groups(
     Args:
         user_id: ID ZIA du user.
         group_ids: IDs de groupes.
-        group_names: Noms de groupes (ex: \"Vo2 - Israel\").
+        group_names: Noms de groupes (ex: \"GROUPE\").
         add: Si True, ajoute aux groupes existants au lieu de remplacer.
         department_id / department_name: Force le département de l'user.
         default_department_id: Département utilisé seulement si l'user n'en a pas

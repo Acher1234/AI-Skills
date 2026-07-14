@@ -110,7 +110,7 @@ python cli.py zidentity users
 `add_users_to_group.sh` ajoute des utilisateurs ZIA (depuis des exports JSON) à un groupe + département en réutilisant `cli.py zia set-groups` :
 
 ```bash
-./add_users_to_group.sh "Vo2 - Canada" "Canada" users1.json [users2.json ...]
+./add_users_to_group.sh "GROUP" "DEPARTEMENT" users1.json [users2.json ...]
 ```
 
 ## Commandes disponibles

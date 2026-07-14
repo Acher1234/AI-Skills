@@ -8,6 +8,10 @@
 ```
 hermes-script/
 ├── README.md               ← Ce fichier
+├── dependencies.md         ← Dépendances transverses (outillage)
+├── setup.sh                ← Bootstrap (active les hooks git)
+├── .githooks/              ← Hooks git versionnés
+│   └── pre-commit          ← Scan gitleaks (bloque les secrets)
 ├── pc-daily-report/        ← Rapport CPU/RAM/disque quotidien
 │   ├── README.md           ← Documentation de la commande
 │   ├── dependencies.md     ← Dépendances requises
@@ -17,6 +21,18 @@ hermes-script/
 │   └── coolify.py
 └── ...                     ← (À venir : tri filebot, déploiement, etc.)
 ```
+
+## 🔒 Sécurité — hooks git
+
+Un hook `pre-commit` (dans `.githooks/`) lance **gitleaks** pour empêcher qu'une clé ou un token soit commité par erreur. Active-le une fois après le clone :
+
+```bash
+./setup.sh
+```
+
+> `git` n'applique pas `core.hooksPath` automatiquement au clone (sécurité), d'où cette étape unique. `setup.sh` fait `git config core.hooksPath .githooks` et vérifie que `gitleaks` est installé.
+
+Détails et installation de `gitleaks` : voir [`dependencies.md`](dependencies.md).
 
 ## 📋 Commandes actuelles
 

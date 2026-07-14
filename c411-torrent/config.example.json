@@ -1,5 +1,5 @@
 {
   "url": "https://c411.org",
   "api_key": "YOUR_API_KEY",
-  "download_path": "/home/data/disk1/torrents"
+  "download_path": "/tmp"
 }

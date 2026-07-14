@@ -142,15 +142,13 @@ def cmd_add(config, magnet, category, paused):
 
 def cmd_add_file(config, path, category, paused):
     if not os.path.exists(path):
-        print(f"❌ Fichier introuvable : {path}")
+        print(f"\u2764 Fichier introuvable : {path}")
         return
     url, op = login(config)
-    boundary = "----QBITTORRENTCLI"
     with open(path, "rb") as f:
         file_content = f.read()
     filename = os.path.basename(path)
-
-    # Build form-data manually (stdlib, no extra deps)
+    boundary = "----QBITTORRENTCLI"
     body_parts = [
         f"--{boundary}",
         f'Content-Disposition: form-data; name="torrents"; filename="{filename}"',
@@ -158,26 +156,17 @@ def cmd_add_file(config, path, category, paused):
         "",
     ]
     body = "\r\n".join(body_parts).encode() + b"\r\n" + file_content + f"\r\n--{boundary}--\r\n".encode()
-
-    full_url = f"{url}/api/v2/torrents/add"
     req = urllib.request.Request(
-        full_url,
+        f"{url}/api/v2/torrents/add",
         data=body,
         headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
     )
     try:
-        # Build a new opener based on the same cookie jar
-        cj_opener = urllib.request.build_opener(
-            urllib.request.HTTPCookieProcessor(op.__dict__.get("cookiejar", None))
-        ) if hasattr(op, "handlers") else op
-        resp = cj_opener.open(req, timeout=30)
+        resp = op.open(req, timeout=30)
         resp.read()
-        print(f"✅ Fichier ajouté : {path}")
+        print(f"\u2705 Fichier ajouté : {path}")
     except urllib.error.HTTPError as e:
-        print(f"❌ HTTP {e.code}: {e.read().decode()}")
-    except Exception as e:
-        print(f"❌ Erreur: {e}")
-
+        print(f"\u274c HTTP {e.code}: {e.read().decode()}")
 
 def cmd_info(config, hash_val):
     url, op = login(config)

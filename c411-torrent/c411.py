@@ -4,8 +4,6 @@ C411 CLI — recherche de torrents via l'API C411 (Torznab).
 
 Usage:
   ./c411.py search <query> [--cat CAT] [--limit N]
-  ./c411.py search tv <query> [--limit N]
-  ./c411.py search movie <query> [--limit N]
 """
 
 import argparse
@@ -30,8 +28,6 @@ CATEGORIES = {
     "all": "",
 }
 
-NS = {"torznab": "http://torznab.com/schemas/2015/feed"}
-
 
 def load_config():
     if not os.path.exists(CONFIG_PATH):
@@ -55,28 +51,17 @@ def api_get(config, params):
 
 
 def parse_results(xml_text):
-    """Parse les résultats XML Torznab en objets simples."""
     root = ET.fromstring(xml_text)
     results = []
     for item in root.findall(".//item"):
         title = item.findtext("title", "")
         size = item.findtext("size", "0")
-        guid = item.findtext("guid", "")
-        pubdate = item.findtext("pubDate", "")
         link_el = item.find("link")
         link = link_el.text if link_el is not None else ""
-
-        # Extra category
-        cats = item.findall("category")
-        category = cats[0].text if cats else "inconnu"
-
         results.append({
             "title": title,
             "size": int(size),
             "link": link,
-            "pubdate": pubdate,
-            "category": category,
-            "guid": guid,
         })
     return results
 
@@ -106,61 +91,12 @@ def cmd_search(config, query, category, limit):
         print(f"   Aucun résultat pour « {query} ».")
         return
 
-    print(f"🔍 Résultats pour « {query} » ({len(results)}):")
+    cat_label = f" [{category}]" if category and category != "all" else ""
+    print(f"🔍 « {query} »{cat_label} — {len(results)} résultat(s) :")
     print()
     for r in results:
         print(f"  📄 {r['title'][:80]}")
-        print(f"     Taille : {fmt_size(r['size'])}  |  Catégorie : {r['category']}")
-        if r["link"]:
-            print(f"     Lien   : {r['link'][:80]}")
-        print()
-
-
-def cmd_search_tv(config, query, limit):
-    params = {
-        "apikey": config["api_key"],
-        "t": "tvsearch",
-        "q": query,
-        "limit": str(limit),
-    }
-    xml_text = api_get(config, params)
-    results = parse_results(xml_text)
-
-    if not results:
-        print(f"   Aucun résultat TV pour « {query} ».")
-        return
-
-    print(f"📺 TV « {query} » ({len(results)}):")
-    print()
-    for r in results:
-        print(f"  📄 {r['title'][:80]}")
-        print(f"     Taille : {fmt_size(r['size'])}")
-        if r["link"]:
-            print(f"     Lien   : {r['link'][:80]}")
-        print()
-
-
-def cmd_search_movie(config, query, limit):
-    params = {
-        "apikey": config["api_key"],
-        "t": "movie",
-        "q": query,
-        "limit": str(limit),
-    }
-    xml_text = api_get(config, params)
-    results = parse_results(xml_text)
-
-    if not results:
-        print(f"   Aucun résultat Movie pour « {query} ».")
-        return
-
-    print(f"🎬 Films « {query} » ({len(results)}):")
-    print()
-    for r in results:
-        print(f"  📄 {r['title'][:80]}")
-        print(f"     Taille : {fmt_size(r['size'])}")
-        if r["link"]:
-            print(f"     Lien   : {r['link'][:80]}")
+        print(f"     {fmt_size(r['size'])}  |  {r['link']}")
         print()
 
 
@@ -170,28 +106,16 @@ def main():
     parser = argparse.ArgumentParser(description="C411 CLI — recherche de torrents")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_search = sub.add_parser("search", help="Recherche générale")
-    p_search.add_argument("query")
-    p_search.add_argument("--cat", choices=list(CATEGORIES.keys()), default="all")
-    p_search.add_argument("--limit", type=int, default=10)
-
-    p_tv = sub.add_parser("tv", help="Recherche TV")
-    p_tv.add_argument("query")
-    p_tv.add_argument("--limit", type=int, default=10)
-
-    p_movie = sub.add_parser("movie", help="Recherche Film")
-    p_movie.add_argument("query")
-    p_movie.add_argument("--limit", type=int, default=10)
+    p = sub.add_parser("search", help="Rechercher des torrents")
+    p.add_argument("query")
+    p.add_argument("--cat", choices=list(CATEGORIES.keys()), default="all", help="Catégorie")
+    p.add_argument("--limit", type=int, default=10, help="Nombre de résultats")
 
     args = parser.parse_args()
     config = load_config()
 
     if args.command == "search":
         cmd_search(config, args.query, getattr(args, "cat", "all"), args.limit)
-    elif args.command == "tv":
-        cmd_search_tv(config, args.query, args.limit)
-    elif args.command == "movie":
-        cmd_search_movie(config, args.query, args.limit)
 
 
 if __name__ == "__main__":

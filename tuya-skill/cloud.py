@@ -131,7 +131,6 @@ def cmd_state(config, device_id):
 
 def cmd_switch(config, device_id, value):
     client = get_client(config)
-    # Pour plugs: switch_1, pour clims IR: switch
     for code in ("switch_1", "switch"):
         data = {"commands": [{"code": code, "value": value}]}
         response = client.post(f"/v1.0/devices/{device_id}/commands", data)
@@ -149,3 +148,27 @@ def cmd_rename(config, device_id, new_name):
         print(f"✅ Renommé → « {new_name} »  |  {device_id}")
     else:
         print(f"❌ {response}")
+
+
+def cmd_clim(config, device_id, mode, temp, fan):
+    """Règle une clim IR (mode, température, ventilation)."""
+    client = get_client(config)
+    mode_map = {"cold": 0, "heat": 1, "auto": 2, "fan": 3, "dry": 4}
+    fan_map = {"auto": 0, "low": 1, "mid": 2, "high": 3}
+
+    ok = False
+    for code, value in [("mode", mode), ("temp", temp), ("fan", fan)]:
+        data = {"commands": [{"code": code, "value": value}]}
+        r = client.post(f"/v1.0/devices/{device_id}/commands", data)
+        if r.get("success"):
+            ok = True
+
+    if not ok:
+        m_val = mode_map.get(mode, 0)
+        f_val = fan_map.get(fan, 0)
+        for c, v in [("M", m_val), ("T", temp), ("F", f_val)]:
+            data = {"commands": [{"code": c, "value": v}]}
+            client.post(f"/v1.0/devices/{device_id}/commands", data)
+
+    labels = {"cold": "❄️ Froid", "heat": "🔥 Chaud", "auto": "🌬️ Auto", "fan": "💨 Ventilo", "dry": "💧 Dry"}
+    print(f"✅ {labels.get(mode, mode)}  |  🌡️ {temp}°C  |  💨 {fan}")

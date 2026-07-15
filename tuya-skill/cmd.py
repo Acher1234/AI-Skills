@@ -72,6 +72,12 @@ def build_parser():
     p_rename.add_argument("device_id")
     p_rename.add_argument("name", help="Nouveau nom")
 
+    p_clim = sub.add_parser("clim", help="Régler une clim (mode, température, ventilation)")
+    p_clim.add_argument("device_id")
+    p_clim.add_argument("mode", choices=["cold", "heat", "auto", "fan", "dry"], help="Mode")
+    p_clim.add_argument("temp", type=int, help="Température (16-30)")
+    p_clim.add_argument("--fan", choices=["auto", "low", "mid", "high"], default="auto", help="Ventilation")
+
     # ─── Local ───────────────────────────────────────────────────────────
     p_lscan = sub.add_parser("local-scan", help="Scan LAN → ip + device_id + version")
     p_lscan.add_argument("--seconds", type=int, default=18, help="Durée du scan (défaut 18)")
@@ -121,6 +127,8 @@ def main():
         cloud.cmd_switch(config, args.device_id, False)
     elif args.command == "rename":
         cloud.cmd_rename(config, args.device_id, args.name)
+    elif args.command == "clim":
+        cloud.cmd_clim(config, args.device_id, args.mode, args.temp, args.fan)
     elif args.command == "local-scan":
         local.cmd_local_scan(config, args.seconds)
     elif args.command == "local-sync":

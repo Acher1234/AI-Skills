@@ -19,6 +19,10 @@ Usage (Local / LAN via tinytuya):
   ./cmd.py local-scan               # Scan LAN → ip + device_id + version
   ./cmd.py local-sync               # Récupère les local keys (Cloud) → devices.json
   ./cmd.py local-devices            # Liste les appareils depuis devices.json
+  ./cmd.py local-status <device>    # Disponibilité en LAN (online/offline)
+  ./cmd.py local-state <device>     # État détaillé en LAN (DPS)
+  ./cmd.py local-on <device>        # Allumer en LAN
+  ./cmd.py local-off <device>       # Éteindre en LAN
 """
 
 import argparse
@@ -83,6 +87,18 @@ def build_parser():
     p_ldev = sub.add_parser("local-devices", help="Liste les appareils depuis devices.json")
     p_ldev.add_argument("--show-keys", action="store_true", help="Afficher les local keys en clair")
 
+    p_lstatus = sub.add_parser("local-status", help="Disponibilité en LAN (online/offline)")
+    p_lstatus.add_argument("device_id", help="Device ID ou nom (depuis devices.json)")
+
+    p_lstate = sub.add_parser("local-state", help="État détaillé en LAN (DPS)")
+    p_lstate.add_argument("device_id", help="Device ID ou nom (depuis devices.json)")
+
+    p_lon = sub.add_parser("local-on", help="Allumer en LAN")
+    p_lon.add_argument("device_id", help="Device ID ou nom (depuis devices.json)")
+
+    p_loff = sub.add_parser("local-off", help="Éteindre en LAN")
+    p_loff.add_argument("device_id", help="Device ID ou nom (depuis devices.json)")
+
     return parser
 
 
@@ -117,6 +133,14 @@ def main():
         )
     elif args.command == "local-devices":
         local.cmd_local_devices(config, args.show_keys)
+    elif args.command == "local-status":
+        local.cmd_local_status(config, args.device_id)
+    elif args.command == "local-state":
+        local.cmd_local_state(config, args.device_id)
+    elif args.command == "local-on":
+        local.cmd_local_switch(config, args.device_id, True)
+    elif args.command == "local-off":
+        local.cmd_local_switch(config, args.device_id, False)
 
 
 if __name__ == "__main__":

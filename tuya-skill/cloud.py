@@ -5,6 +5,8 @@ Commandes Cloud (API Tuya IoT) pour le CLI Tuya.
 Utilise le SDK `tuya-connector-python` pour parler à l'API cloud Tuya.
 """
 
+import json
+import os
 import sys
 
 from tuya_connector import TuyaOpenAPI
@@ -24,6 +26,27 @@ STATE_LABELS = {
 }
 STATE_MODES = {"0": "auto", "1": "cool", "2": "heat", "3": "fan", "4": "dry"}
 STATE_WINDS = {"0": "low", "1": "mid", "2": "high", "3": "auto"}
+
+# Default mode mapping (most ACs: M=0 auto, M=1 cold, M=2 heat, M=3 fan, M=4 dry)
+DEFAULT_MODE_MAP = {"cold": 1, "heat": 2, "auto": 0, "fan": 3, "dry": 4}
+
+# Per-brand overrides defined by mode_map field in devices.json
+BRAND_MAPS = {
+    "electra": {"cold": 0, "heat": 1, "auto": 2, "fan": 3, "dry": 4},
+}
+
+
+def _get_mode_map(device_id):
+    """Retourne le mapping mode→valeur selon le type d'AC (depuis devices.json)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "devices.json")
+    if os.path.exists(path):
+        with open(path) as f:
+            devices = json.load(f)
+        for d in devices:
+            if d.get("id") == device_id:
+                brand = d.get("mode_map", "default")
+                return BRAND_MAPS.get(brand, DEFAULT_MODE_MAP)
+    return DEFAULT_MODE_MAP
 
 
 def get_client(config):
@@ -153,22 +176,15 @@ def cmd_rename(config, device_id, new_name):
 def cmd_clim(config, device_id, mode, temp, fan):
     """Règle une clim IR (mode, température, ventilation)."""
     client = get_client(config)
-    mode_map = {"cold": 0, "heat": 1, "auto": 2, "fan": 3, "dry": 4}
+    mode_map = _get_mode_map(device_id)
     fan_map = {"auto": 0, "low": 1, "mid": 2, "high": 3}
 
-    ok = False
-    for code, value in [("mode", mode), ("temp", temp), ("fan", fan)]:
-        data = {"commands": [{"code": code, "value": value}]}
-        r = client.post(f"/v1.0/devices/{device_id}/commands", data)
-        if r.get("success"):
-            ok = True
+    m_val = mode_map.get(mode, 0)
+    f_val = fan_map.get(fan, 0)
 
-    if not ok:
-        m_val = mode_map.get(mode, 0)
-        f_val = fan_map.get(fan, 0)
-        for c, v in [("M", m_val), ("T", temp), ("F", f_val)]:
-            data = {"commands": [{"code": c, "value": v}]}
-            client.post(f"/v1.0/devices/{device_id}/commands", data)
+    for c, v in [("M", m_val), ("T", temp), ("F", f_val)]:
+        data = {"commands": [{"code": c, "value": v}]}
+        client.post(f"/v1.0/devices/{device_id}/commands", data)
 
     labels = {"cold": "❄️ Froid", "heat": "🔥 Chaud", "auto": "🌬️ Auto", "fan": "💨 Ventilo", "dry": "💧 Dry"}
     print(f"✅ {labels.get(mode, mode)}  |  🌡️ {temp}°C  |  💨 {fan}")

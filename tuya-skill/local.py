@@ -251,3 +251,32 @@ def cmd_local_switch(config, device_id, value):
         print(f"❌ {name} : {result}")
         return
     print(f"✅ {'🟢 ON' if value else '🔴 OFF'}  |  {name} (LAN)")
+
+
+BRAND_MAPS = {
+    "electra": {"cold": 0, "heat": 1, "auto": 2, "fan": 3, "dry": 4},
+}
+DEFAULT_MODE_MAP = {"cold": 1, "heat": 2, "auto": 0, "fan": 3, "dry": 4}
+
+
+def cmd_local_clim(config, device_id, mode, temp, fan):
+    """Règle une clim via LAN (tinytuya)."""
+    tinytuya = _load_tinytuya()
+    entry, dev = _device_handle(tinytuya, config, device_id)
+    name = entry.get("name", device_id)
+    brand = entry.get("mode_map", "default")
+    mode_map = BRAND_MAPS.get(brand, DEFAULT_MODE_MAP)
+    fan_map = {"auto": 0, "low": 1, "mid": 2, "high": 3}
+
+    m_val = mode_map.get(mode, 0)
+    f_val = fan_map.get(fan, 0)
+    dps = {"M": m_val, "T": temp, "F": f_val}
+
+    try:
+        dev.set_multiple_values(dps)
+    except Exception as e:
+        print(f"❌ {name} : {e}")
+        return
+
+    labels = {"cold": "❄️ Froid", "heat": "🔥 Chaud", "auto": "🌬️ Auto", "fan": "💨 Ventilo", "dry": "💧 Dry"}
+    print(f"✅ {labels.get(mode, mode)}  |  🌡️ {temp}°C  |  💨 {fan}  (LAN)")

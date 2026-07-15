@@ -108,6 +108,12 @@ def build_parser():
     p_loff = sub.add_parser("local-off", help="Éteindre en LAN")
     p_loff.add_argument("device_id", help="Device ID ou nom (depuis devices.json)")
 
+    p_lclim = sub.add_parser("local-clim", help="Régler une clim en LAN")
+    p_lclim.add_argument("device_id")
+    p_lclim.add_argument("mode", choices=["cold", "heat", "auto", "fan", "dry"])
+    p_lclim.add_argument("temp", type=int, help="Température (16-30)")
+    p_lclim.add_argument("--fan", choices=["auto", "low", "mid", "high"], default="auto")
+
     return parser
 
 
@@ -154,6 +160,8 @@ def main():
         local.cmd_local_switch(config, args.device_id, True)
     elif args.command == "local-off":
         local.cmd_local_switch(config, args.device_id, False)
+    elif args.command == "local-clim":
+        local.cmd_local_clim(config, args.device_id, args.mode, args.temp, args.fan)
 
 
 if __name__ == "__main__":

@@ -27,17 +27,14 @@ STATE_LABELS = {
 STATE_MODES = {"0": "auto", "1": "cool", "2": "heat", "3": "fan", "4": "dry"}
 STATE_WINDS = {"0": "low", "1": "mid", "2": "high", "3": "auto"}
 
-# Default mode mapping (most ACs: M=0 auto, M=1 cold, M=2 heat, M=3 fan, M=4 dry)
 DEFAULT_MODE_MAP = {"cold": 1, "heat": 2, "auto": 0, "fan": 3, "dry": 4}
 
-# Per-brand overrides defined by mode_map field in devices.json
 BRAND_MAPS = {
     "electra": {"cold": 0, "heat": 1, "auto": 2, "fan": 3, "dry": 4},
 }
 
 
 def _get_mode_map(device_id):
-    """Retourne le mapping mode→valeur selon le type d'AC (depuis devices.json)."""
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "devices.json")
     if os.path.exists(path):
         with open(path) as f:
@@ -188,3 +185,48 @@ def cmd_clim(config, device_id, mode, temp, fan):
 
     labels = {"cold": "❄️ Froid", "heat": "🔥 Chaud", "auto": "🌬️ Auto", "fan": "💨 Ventilo", "dry": "💧 Dry"}
     print(f"✅ {labels.get(mode, mode)}  |  🌡️ {temp}°C  |  💨 {fan}")
+
+
+def cmd_cloud_sync(config, show_keys=False):
+    """Récupère les devices et local keys via le Cloud → devices.json (no local scan)."""
+    client = get_client(config)
+    response = client.get("/v2.0/cloud/thing/device?page_no=1&page_size=20")
+    if not response.get("success"):
+        print(f"❌ {response}")
+        return
+    result = response.get("result", [])
+    if isinstance(result, dict):
+        result = result.get("list", result.get("devices", []))
+    if not result:
+        print("❌ Aucun appareil trouvé.")
+        return
+
+    devices = []
+    for d in result:
+        name = d.get("customName", d.get("name", "-"))
+        entry = {
+            "id": d.get("id"),
+            "name": name,
+            "local_key": d.get("localKey", ""),
+            "ip": d.get("ip", ""),
+            "version": "",
+            "model": d.get("model", ""),
+            "product_id": d.get("productId", ""),
+        }
+        if "clim" in name.lower() or "mazgan" in name.lower():
+            entry["mode_map"] = "electra"
+        devices.append(entry)
+
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "devices.json")
+    with open(path, "w") as f:
+        json.dump(devices, f, indent=2)
+        f.write("\n")
+
+    print(f"✅ {len(devices)} appareil(s) → {path}")
+    if show_keys:
+        for d in devices:
+            key = d["local_key"]
+            shown = f"{key[:10]}..." if key else "-"
+            print(f"  • {d['name']:25s} | key: {shown}")
+    else:
+        print("   (utilisez --show-keys pour voir les clés)")

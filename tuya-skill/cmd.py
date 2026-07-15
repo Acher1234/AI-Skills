@@ -78,6 +78,9 @@ def build_parser():
     p_clim.add_argument("temp", type=int, help="Température (16-30)")
     p_clim.add_argument("--fan", choices=["auto", "low", "mid", "high"], default="auto", help="Ventilation")
 
+    p_csync = sub.add_parser("cloud-sync", help="Génère devices.json via Cloud (sans scan LAN)")
+    p_csync.add_argument("--show-keys", action="store_true")
+
     # ─── Local ───────────────────────────────────────────────────────────
     p_lscan = sub.add_parser("local-scan", help="Scan LAN → ip + device_id + version")
     p_lscan.add_argument("--seconds", type=int, default=18, help="Durée du scan (défaut 18)")
@@ -129,6 +132,8 @@ def main():
         cloud.cmd_rename(config, args.device_id, args.name)
     elif args.command == "clim":
         cloud.cmd_clim(config, args.device_id, args.mode, args.temp, args.fan)
+    elif args.command == "cloud-sync":
+        cloud.cmd_cloud_sync(config, getattr(args, "show_keys", False))
     elif args.command == "local-scan":
         local.cmd_local_scan(config, args.seconds)
     elif args.command == "local-sync":

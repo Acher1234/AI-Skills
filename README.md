@@ -8,15 +8,16 @@
 ```
 hermes-script/
 ├── README.md               ← Ce fichier
+├── SKILL_TEMPLATE.md       ← Guide pour créer un nouveau skill
 ├── dependencies.md         ← Dépendances transverses (outillage)
 ├── setup.sh                ← Bootstrap (active les hooks git)
 ├── .githooks/              ← Hooks git versionnés
 │   └── pre-commit          ← Scan gitleaks (bloque les secrets)
 ├── pc-daily-report/        ← Rapport CPU/RAM/disque quotidien
-│   ├── README.md           ← Documentation de la commande
-│   ├── dependencies.md     ← Dépendances requises
-│   └── pc-daily-report.sh  ← Le script
+├── tuya-skill/             ← CLI Tuya IoT
+├── qbittorrent-scripts/    ← CLI qBittorrent
 ├── coolify/                ← CLI déploiements Coolify
+└── ...
 │   ├── README.md
 │   └── coolify.py
 ├── zscaler/                ← CLI Zscaler (ZPA / ZIA / ZIdentity)
@@ -45,13 +46,19 @@ Détails et installation de `gitleaks` : voir [`dependencies.md`](dependencies.m
 |----------|------------|---------|
 | `pc-daily-report` | Rapport monitoring CPU/RAM/disk, livré tous les matins à 7h | bash |
 | `coolify` | CLI déploiements Coolify — status, déploiement, redémarrage | python |
+| `qbittorrent` | CLI gestion de torrents via l'API WebUI qBittorrent | python |
+
+## 🧩 Créer un nouveau skill
+
+Voir **[`SKILL_TEMPLATE.md`](SKILL_TEMPLATE.md)** pour le guide complet (structure, conventions, sécurité).
 | `zscaler` | CLI Zscaler — administration ZPA / ZIA / ZIdentity | python |
 
 ## 🚀 Utilisation
 
 Chaque sous-projet contient :
-- Un **README.md** expliquant la commande, son usage et des exemples
+- Un **README.md** (EN) et un **README.fr.md** (FR)
 - Un **dependencies.md** listant les dépendances système requises
+- Un **config.example.json** template (les vrais secrets sont gitignorés)
 - Le **script** exécutable
 
 Les scripts sont conçus pour être appelés :

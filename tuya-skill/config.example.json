@@ -1,0 +1,8 @@
+{
+  "_comment": "Copiez ce fichier en config.json et remplissez vos identifiants Tuya IoT",
+  "auth_key": "YOUR_AUTHORIZATION_KEY",
+  "access_id": "YOUR_ACCESS_ID_CLIENT_ID",
+  "access_secret": "YOUR_ACCESS_SECRET_CLIENT_SECRET",
+  "project_code": "YOUR_PROJECT_CODE",
+  "region": "eu"
+}

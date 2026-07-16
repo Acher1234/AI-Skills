@@ -1,6 +1,6 @@
 # 🧰 Hermes Scripts
 
-> Collection de scripts CLI (shell / python / node) qu'Hermes Agent utilise sur la machine **kleinplex**.
+> Collection de scripts CLI (shell / python / node) qu'Hermes Agent utilise sur hermes.
 > Chaque commande a son propre dossier avec un README dédié et un fichier de dépendances.
 
 ## 📁 Structure
@@ -14,10 +14,18 @@ hermes-script/
 ├── .githooks/              ← Hooks git versionnés
 │   └── pre-commit          ← Scan gitleaks (bloque les secrets)
 ├── pc-daily-report/        ← Rapport CPU/RAM/disque quotidien
-├── coolify/                ← CLI déploiements Coolify
 ├── tuya-skill/             ← CLI Tuya IoT
 ├── qbittorrent-scripts/    ← CLI qBittorrent
+├── coolify/                ← CLI déploiements Coolify
 └── ...
+│   ├── README.md
+│   └── coolify.py
+├── zscaler/                ← CLI Zscaler (ZPA / ZIA / ZIdentity)
+│   ├── README.md           ← Documentation (EN)
+│   ├── README-FR.md        ← Documentation (FR)
+│   ├── dependencies.md
+│   └── cli.py              ← + zpa.py / zia.py / zidentity.py
+└── ...                     ← (À venir : tri filebot, déploiement, etc.)
 ```
 
 ## 🔒 Sécurité — hooks git
@@ -43,6 +51,7 @@ Détails et installation de `gitleaks` : voir [`dependencies.md`](dependencies.m
 ## 🧩 Créer un nouveau skill
 
 Voir **[`SKILL_TEMPLATE.md`](SKILL_TEMPLATE.md)** pour le guide complet (structure, conventions, sécurité).
+| `zscaler` | CLI Zscaler — administration ZPA / ZIA / ZIdentity | python |
 
 ## 🚀 Utilisation
 

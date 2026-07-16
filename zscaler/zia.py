@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import re
 from typing import Any
-
+from zscaler.zia.dedicated_ip_gateways import DedicatedIPGatewaysAPI
 from zscaler.oneapi_client import LegacyZIAClient
-
+from zscaler.zia.forwarding_control import ForwardingControlAPI
 # --- Zscaler URL-category rules (whitelisting) -----------------------------
 URL_MAX_LENGTH = 1024
 DOMAIN_MAX_LENGTH = 255
+
 LABEL_MAX_LENGTH = 63
 _LABEL_RE = re.compile(r"^[a-z0-9_-]+$")
 
@@ -368,33 +369,311 @@ def remove_urls_from_category(
         return updated.as_dict() if hasattr(updated, "as_dict") else dict(updated)
 
 
+# --- Forwarding Control / Dedicated IP -------------------------------------
+FORWARD_METHODS = (
+    "DIRECT",
+    "PROXYCHAIN",
+    "ZIA",
+    "ZPA",
+    "ECZPA",
+    "ECSELF",
+    "DROP",
+    "ENATDEDIP",
+    "GEOIP",
+)
+FORWARDING_RULE_NAME_MAX = 31
+
+
+def _forwarding_control_api(client: Any) -> Any:
+    """Return ForwardingControlAPI (Legacy helper may lack the property)."""
+
+    zia_svc = client.zia
+    if hasattr(zia_svc, "forwarding_control"):
+        return zia_svc.forwarding_control
+    return ForwardingControlAPI(zia_svc.request_executor)
+
+
+def _dedicated_ip_gateways_api(client: Any) -> Any:
+    """Return DedicatedIPGatewaysAPI (Legacy helper may lack the property)."""
+    zia_svc = client.zia
+    if hasattr(zia_svc, "dedicated_ip_gateways"):
+        return zia_svc.dedicated_ip_gateways
+    return DedicatedIPGatewaysAPI(zia_svc.request_executor)
+
+
 def list_forwarding_rules(
     zia_cfg: dict[str, Any],
     search: str | None = None,
 ) -> list[dict[str, Any]]:
-    """List ZIA forwarding control rules.
-
-    Note: ``forwarding_control`` is missing on LegacyZIAClientHelper, so we
-    instantiate ForwardingControlAPI with the legacy request executor.
-    """
-    from zscaler.zia.forwarding_control import ForwardingControlAPI
-
+    """List ZIA forwarding control rules."""
     query_params: dict[str, Any] = {}
     if search:
         query_params["search"] = search
 
     with get_client(zia_cfg) as client:
-        # Legacy helper has no .forwarding_control property; OneAPI client.zia does.
-        zia_svc = client.zia
-        if hasattr(zia_svc, "forwarding_control"):
-            api = zia_svc.forwarding_control
-        else:
-            api = ForwardingControlAPI(zia_svc.request_executor)
-
-        rules, _, err = api.list_rules(query_params=query_params or None)
+        rules, _, err = _forwarding_control_api(client).list_rules(
+            query_params=query_params or None
+        )
         if err:
             raise RuntimeError(f"Failed to list forwarding rules: {err}")
-        return [r.as_dict() if hasattr(r, "as_dict") else dict(r) for r in (rules or [])]
+        return [_to_dict(r) for r in (rules or [])]
+
+
+def get_forwarding_rule(
+    zia_cfg: dict[str, Any],
+    *,
+    rule_id: int | str | None = None,
+    rule_name: str | None = None,
+) -> dict[str, Any]:
+    """Get a forwarding control rule by ID or exact name."""
+    if rule_id is not None and str(rule_id).strip():
+        with get_client(zia_cfg) as client:
+            rule, _, err = _forwarding_control_api(client).get_rule(str(rule_id))
+            if err:
+                raise RuntimeError(f"Failed to get forwarding rule {rule_id}: {err}")
+            if rule is None:
+                raise RuntimeError(f"Forwarding rule introuvable: {rule_id}")
+            return _to_dict(rule)
+
+    if not rule_name or not rule_name.strip():
+        raise ValueError("rule_id ou rule_name requis")
+
+    needle = rule_name.strip().casefold()
+    matches = [
+        r
+        for r in list_forwarding_rules(zia_cfg, search=rule_name)
+        if str(r.get("name") or "").casefold() == needle
+    ]
+    if not matches:
+        matches = [
+            r
+            for r in list_forwarding_rules(zia_cfg)
+            if str(r.get("name") or "").casefold() == needle
+        ]
+    if not matches:
+        raise RuntimeError(f"Forwarding rule introuvable: {rule_name!r}")
+    if len(matches) > 1:
+        ids = ", ".join(str(r.get("id")) for r in matches)
+        raise RuntimeError(f"Plusieurs forwarding rules pour {rule_name!r}: {ids}")
+    return matches[0]
+
+
+def list_dedicated_ips(zia_cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """List the org's ZIA dedicated IPs (Dedicated IP Gateways).
+
+    Renvoie la liste des dedicated IP gateways du tenant (endpoint
+    ``/dedicatedIPGateways/lite``).
+    """
+    with get_client(zia_cfg) as client:
+        gateways, _, err = _dedicated_ip_gateways_api(client).list_dedicated_ip_gw_lite()
+        if err:
+            raise RuntimeError(f"Failed to list dedicated IP gateways: {err}")
+        return [_to_dict(g) for g in (gateways or [])]
+
+
+def resolve_dedicated_ip_gateway(
+    zia_cfg: dict[str, Any],
+    *,
+    gateway_id: int | str | None = None,
+    gateway_name: str | None = None,
+) -> dict[str, Any]:
+    """Resolve a dedicated IP gateway to ``{"id": ..., "name": ...}``."""
+    gateways = list_dedicated_ips(zia_cfg)
+
+    if gateway_id is not None and str(gateway_id).strip():
+        gid = int(gateway_id)
+        for gw in gateways:
+            if int(gw.get("id") or 0) == gid:
+                return {"id": int(gw["id"]), "name": gw.get("name")}
+        available = ", ".join(f"{g.get('id')}:{g.get('name')}" for g in gateways)
+        raise RuntimeError(f"Dedicated IP gateway introuvable: id={gid}. Disponibles: {available}")
+
+    if not gateway_name or not gateway_name.strip():
+        raise ValueError("gateway_id ou gateway_name requis")
+
+    needle = gateway_name.strip().casefold()
+    matches = [g for g in gateways if str(g.get("name") or "").casefold() == needle]
+    if not matches:
+        available = ", ".join(sorted(str(g.get("name") or "?") for g in gateways))
+        raise RuntimeError(
+            f"Dedicated IP gateway introuvable: {gateway_name!r}. Disponibles: {available}"
+        )
+    if len(matches) > 1:
+        ids = ", ".join(str(g.get("id")) for g in matches)
+        raise RuntimeError(f"Plusieurs dedicated IP gateways pour {gateway_name!r}: {ids}")
+    return {"id": int(matches[0]["id"]), "name": matches[0].get("name")}
+
+
+def resolve_url_category_ids(
+    zia_cfg: dict[str, Any],
+    *,
+    category_ids: list[str] | None = None,
+    category_names: list[str] | None = None,
+) -> list[str]:
+    """Resolve URL category IDs / configured names to category ID strings (e.g. CUSTOM_01)."""
+    resolved: list[str] = []
+    seen: set[str] = set()
+
+    for cid in category_ids or []:
+        text = str(cid).strip()
+        if not text:
+            continue
+        key = text.casefold()
+        if key not in seen:
+            seen.add(key)
+            resolved.append(text)
+
+    for name in category_names or []:
+        cat = get_url_category(zia_cfg, category_name=name)
+        cid = str(cat.get("id") or "").strip()
+        if not cid:
+            raise RuntimeError(f"URL category sans id: {name!r}")
+        key = cid.casefold()
+        if key not in seen:
+            seen.add(key)
+            resolved.append(cid)
+
+    return resolved
+
+
+def resolve_dest_ip_group_ids(
+    zia_cfg: dict[str, Any],
+    *,
+    group_ids: list[int | str] | None = None,
+    group_names: list[str] | None = None,
+) -> list[int]:
+    """Resolve destination IP group IDs and/or names to integer IDs."""
+    resolved: list[int] = []
+    seen: set[int] = set()
+
+    for gid in group_ids or []:
+        gid_int = int(gid)
+        if gid_int not in seen:
+            seen.add(gid_int)
+            resolved.append(gid_int)
+
+    for name in group_names or []:
+        group = get_ip_destination_group(zia_cfg, group_name=name)
+        gid_int = int(group["id"])
+        if gid_int not in seen:
+            seen.add(gid_int)
+            resolved.append(gid_int)
+
+    return resolved
+
+
+def create_forwarding_rule(
+    zia_cfg: dict[str, Any],
+    name: str,
+    *,
+    forward_method: str = "ENATDEDIP",
+    gateway_id: int | str | None = None,
+    gateway_name: str | None = None,
+    group_ids: list[int | str] | None = None,
+    group_names: list[str] | None = None,
+    url_category_ids: list[str] | None = None,
+    url_category_names: list[str] | None = None,
+    dest_addresses: list[str] | None = None,
+    dest_ip_group_ids: list[int | str] | None = None,
+    dest_ip_group_names: list[str] | None = None,
+    description: str | None = None,
+    order: int | None = None,
+    rank: int = 7,
+    state: str = "ENABLED",
+) -> dict[str, Any]:
+    """
+    Create a ZIA forwarding control rule.
+
+    Cas typique Dedicated IP (``ENATDEDIP``) :
+    - groupes users (``group_ids`` / ``group_names``)
+    - URL categories (``url_category_ids`` / ``url_category_names`` → ``destIpCategories``)
+    - destinations IP (``dest_addresses`` et/ou destination IP groups)
+    - gateway dedicated IP (``gateway_id`` / ``gateway_name``)
+    """
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("name requis")
+    if len(name) > FORWARDING_RULE_NAME_MAX:
+        raise ValueError(
+            f"name trop long ({len(name)}), maximum {FORWARDING_RULE_NAME_MAX} caractères"
+        )
+
+    method = (forward_method or "ENATDEDIP").strip().upper()
+    if method not in FORWARD_METHODS:
+        raise ValueError(
+            f"forward_method invalide: {forward_method!r}. "
+            f"Supportés: {', '.join(FORWARD_METHODS)}"
+        )
+
+    state_norm = (state or "ENABLED").strip().upper()
+    if state_norm not in ("ENABLED", "DISABLED"):
+        raise ValueError("state doit être ENABLED ou DISABLED")
+
+    kwargs: dict[str, Any] = {
+        "name": name,
+        "type": "FORWARDING",
+        "forward_method": method,
+        "state": state_norm,
+        "rank": int(rank),
+    }
+    if description:
+        kwargs["description"] = description
+    if order is not None:
+        kwargs["order"] = int(order)
+
+    if method == "ENATDEDIP":
+        gateway = resolve_dedicated_ip_gateway(
+            zia_cfg, gateway_id=gateway_id, gateway_name=gateway_name
+        )
+        # API wire key is dedicatedIPGateway (IP majuscules) — pas dedicatedIpGateway
+        # que produirait la conversion snake_case → camelCase du SDK.
+        kwargs["dedicatedIPGateway"] = gateway
+    elif gateway_id is not None or gateway_name:
+        raise ValueError(
+            "gateway_id / gateway_name ne s'appliquent qu'avec forward_method=ENATDEDIP"
+        )
+
+    if group_ids or group_names:
+        groups = resolve_group_ids(zia_cfg, group_ids=group_ids, group_names=group_names)
+        kwargs["groups"] = [g["id"] for g in groups]
+
+    categories = resolve_url_category_ids(
+        zia_cfg, category_ids=url_category_ids, category_names=url_category_names
+    )
+    if categories:
+        kwargs["dest_ip_categories"] = categories
+
+    addresses = [a.strip() for a in (dest_addresses or []) if a and a.strip()]
+    if addresses:
+        kwargs["dest_addresses"] = addresses
+
+    dest_groups = resolve_dest_ip_group_ids(
+        zia_cfg, group_ids=dest_ip_group_ids, group_names=dest_ip_group_names
+    )
+    if dest_groups:
+        kwargs["dest_ip_groups"] = dest_groups
+
+    with get_client(zia_cfg) as client:
+        created, _, err = _forwarding_control_api(client).add_rule(**kwargs)
+        if err:
+            raise RuntimeError(f"Failed to create forwarding rule {name!r}: {err}")
+        return _to_dict(created)
+
+
+def delete_forwarding_rule(
+    zia_cfg: dict[str, Any],
+    *,
+    rule_id: int | str | None = None,
+    rule_name: str | None = None,
+) -> dict[str, Any]:
+    """Delete a forwarding control rule by ID or name."""
+    current = get_forwarding_rule(zia_cfg, rule_id=rule_id, rule_name=rule_name)
+    rid = current["id"]
+    with get_client(zia_cfg) as client:
+        _, _, err = _forwarding_control_api(client).delete_rule(str(rid))
+        if err:
+            raise RuntimeError(f"Failed to delete forwarding rule {rid}: {err}")
+    return {"deleted": True, "id": rid, "name": current.get("name")}
 
 
 # --- IP groups (ZIA Cloud Firewall) ----------------------------------------

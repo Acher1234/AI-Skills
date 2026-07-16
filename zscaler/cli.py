@@ -215,7 +215,9 @@ def cmd_zia(args: argparse.Namespace) -> int:
         )
         _print_json(created)
     elif args.action == "add-url":
-        if not args.category_id and not args.category_name:
+        category_id = args.category_id_list[0] if args.category_id_list else None
+        category_name = args.category_name_list[0] if args.category_name_list else None
+        if not category_id and not category_name:
             raise ValueError("--category-id ou --category-name requis pour add-url")
         if not args.url:
             raise ValueError("--url requis pour add-url (répétable)")
@@ -223,12 +225,14 @@ def cmd_zia(args: argparse.Namespace) -> int:
             zia.add_urls_to_category(
                 zia_cfg,
                 args.url,
-                category_id=args.category_id,
-                category_name=args.category_name,
+                category_id=category_id,
+                category_name=category_name,
             )
         )
     elif args.action == "remove-url":
-        if not args.category_id and not args.category_name:
+        category_id = args.category_id_list[0] if args.category_id_list else None
+        category_name = args.category_name_list[0] if args.category_name_list else None
+        if not category_id and not category_name:
             raise ValueError("--category-id ou --category-name requis pour remove-url")
         if not args.url:
             raise ValueError("--url requis pour remove-url (répétable)")
@@ -236,12 +240,58 @@ def cmd_zia(args: argparse.Namespace) -> int:
             zia.remove_urls_from_category(
                 zia_cfg,
                 args.url,
-                category_id=args.category_id,
-                category_name=args.category_name,
+                category_id=category_id,
+                category_name=category_name,
             )
         )
     elif args.action == "forwarding-rules":
         _print_json(zia.list_forwarding_rules(zia_cfg, search=args.search))
+    elif args.action == "get-forwarding-rule":
+        if not args.rule_id and not args.rule_name:
+            raise ValueError("--rule-id ou --rule-name requis")
+        _print_json(
+            zia.get_forwarding_rule(
+                zia_cfg, rule_id=args.rule_id, rule_name=args.rule_name
+            )
+        )
+    elif args.action == "create-forwarding-rule":
+        if not args.name:
+            raise ValueError("--name requis pour create-forwarding-rule")
+        method = (args.forward_method or "ENATDEDIP").upper()
+        if method == "ENATDEDIP" and not args.gateway_id and not args.gateway_name:
+            raise ValueError(
+                "--gateway-id ou --gateway-name requis pour forward_method=ENATDEDIP"
+            )
+        _print_json(
+            zia.create_forwarding_rule(
+                zia_cfg,
+                args.name,
+                forward_method=method,
+                gateway_id=args.gateway_id,
+                gateway_name=args.gateway_name,
+                group_ids=args.group_id or None,
+                group_names=args.group_name or None,
+                url_category_ids=args.category_id_list or None,
+                url_category_names=args.category_name_list or None,
+                dest_addresses=args.dest_ip or None,
+                dest_ip_group_ids=args.dest_ip_group_id or None,
+                dest_ip_group_names=args.dest_ip_group_name or None,
+                description=args.description,
+                order=args.order,
+                rank=args.rank,
+                state=args.state or "ENABLED",
+            )
+        )
+    elif args.action == "delete-forwarding-rule":
+        if not args.rule_id and not args.rule_name:
+            raise ValueError("--rule-id ou --rule-name requis")
+        _print_json(
+            zia.delete_forwarding_rule(
+                zia_cfg, rule_id=args.rule_id, rule_name=args.rule_name
+            )
+        )
+    elif args.action == "dedicated-ips":
+        _print_json(zia.list_dedicated_ips(zia_cfg))
     elif args.action == "get-user":
         if args.user_id:
             _print_json(zia.get_user(zia_cfg, args.user_id))
@@ -426,6 +476,10 @@ def build_parser() -> argparse.ArgumentParser:
             "add-url",
             "remove-url",
             "forwarding-rules",
+            "get-forwarding-rule",
+            "create-forwarding-rule",
+            "delete-forwarding-rule",
+            "dedicated-ips",
             "get-user",
             "set-groups",
             "dest-ip-groups",
@@ -476,30 +530,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--search",
         type=str,
         default=None,
-        help="Filtre recherche (forwarding-rules / departments)",
+        help="Filtre recherche (forwarding-rules / departments / ip-groups)",
     )
     p_zia.add_argument(
         "--group-id",
         action="append",
         default=[],
-        help="ID groupe ZIA (répétable, set-groups)",
+        help="ID groupe ZIA (répétable ; set-groups / create-forwarding-rule)",
     )
     p_zia.add_argument(
         "--group-name",
         action="append",
         default=[],
-        help="Nom groupe ZIA (répétable, set-groups)",
+        help="Nom groupe ZIA (répétable ; set-groups / create-forwarding-rule)",
     )
     p_zia.add_argument(
         "--name",
         type=str,
-        help="Nom de la URL category (create-url-category)",
+        help="Nom (URL category / forwarding rule / IP group)",
     )
     p_zia.add_argument(
         "--description",
         type=str,
         default=None,
-        help="Description (create-url-category)",
+        help="Description (create-url-category / create-forwarding-rule / IP groups)",
     )
     p_zia.add_argument(
         "--super-category",
@@ -509,13 +563,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_zia.add_argument(
         "--category-id",
-        type=str,
-        help="ID catégorie URL (ex: CUSTOM_01)",
+        action="append",
+        default=[],
+        dest="category_id_list",
+        help="ID catégorie URL (ex: CUSTOM_01, répétable ; create-forwarding-rule / add-url)",
     )
     p_zia.add_argument(
         "--category-name",
-        type=str,
-        help="Nom configuré de la catégorie URL",
+        action="append",
+        default=[],
+        dest="category_name_list",
+        help="Nom configuré de la catégorie URL (répétable ; create-forwarding-rule / add-url)",
     )
     p_zia.add_argument(
         "--url",
@@ -590,6 +648,74 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="URL category pour dest IP group DSTN_OTHER (ex: CUSTOM_01, répétable)",
+    )
+    p_zia.add_argument(
+        "--rule-id",
+        type=str,
+        default=None,
+        help="ID d'une forwarding rule (get/delete)",
+    )
+    p_zia.add_argument(
+        "--rule-name",
+        type=str,
+        default=None,
+        help="Nom d'une forwarding rule (get/delete)",
+    )
+    p_zia.add_argument(
+        "--forward-method",
+        type=str,
+        default="ENATDEDIP",
+        choices=list(zia.FORWARD_METHODS),
+        help="Méthode de forwarding (défaut: ENATDEDIP = Dedicated IP)",
+    )
+    p_zia.add_argument(
+        "--gateway-id",
+        type=str,
+        default=None,
+        help="ID du Dedicated IP gateway (create-forwarding-rule ENATDEDIP)",
+    )
+    p_zia.add_argument(
+        "--gateway-name",
+        type=str,
+        default=None,
+        help="Nom du Dedicated IP gateway (create-forwarding-rule ENATDEDIP)",
+    )
+    p_zia.add_argument(
+        "--dest-ip",
+        action="append",
+        default=[],
+        help="IP/CIDR/FQDN destination pour une forwarding rule (répétable)",
+    )
+    p_zia.add_argument(
+        "--dest-ip-group-id",
+        action="append",
+        default=[],
+        help="ID destination IP group pour une forwarding rule (répétable)",
+    )
+    p_zia.add_argument(
+        "--dest-ip-group-name",
+        action="append",
+        default=[],
+        help="Nom destination IP group pour une forwarding rule (répétable)",
+    )
+    p_zia.add_argument(
+        "--order",
+        type=int,
+        default=None,
+        help="Ordre de la forwarding rule",
+    )
+    p_zia.add_argument(
+        "--rank",
+        type=int,
+        default=7,
+        help="Admin rank de la forwarding rule (1-7, défaut: 7)",
+    )
+    p_zia.add_argument(
+        "--state",
+        type=str,
+        default="ENABLED",
+        choices=["ENABLED", "DISABLED"],
+        help="État de la forwarding rule (défaut: ENABLED)",
     )
     p_zia.set_defaults(func=cmd_zia)
 

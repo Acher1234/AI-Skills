@@ -2,9 +2,141 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from zscaler.oneapi_client import LegacyZIAClient
+
+# --- Zscaler URL-category rules (whitelisting) -----------------------------
+URL_MAX_LENGTH = 1024
+DOMAIN_MAX_LENGTH = 255
+LABEL_MAX_LENGTH = 63
+_LABEL_RE = re.compile(r"^[a-z0-9_-]+$")
+
+
+def validate_url(url: str) -> str:
+    """
+    Valide une URL selon les règles d'une custom URL category Zscaler.
+
+    Renvoie l'URL nettoyée (trim) si elle est valide, sinon lève ``ValueError``
+    avec la raison. On reproduit les contraintes de l'Admin Console pour
+    rejeter localement une URL invalide avant que l'API ne rejette toute la
+    requête.
+
+    Règles principales :
+    - ASCII uniquement, longueur <= 1024 caractères.
+    - Pas de schéma de protocole (``http://``, ``https://``, ...).
+    - Domaine en minuscules, format ``host.domain`` (un TLD seul est refusé).
+    - Label de domaine <= 63 caractères, domaine (avant ``:``) <= 255.
+    - Underscore ``_`` interdit dans le TLD et le SLD, sauf pour le SLD quand
+      il n'y a pas de sous-domaine. Un sous-domaine ne peut pas être ``_``.
+    - Wildcard = point initial (``.exemple.com``) — jusqu'à 5 niveaux de
+      sous-domaines. ``*`` en début de domaine est interdit ; ailleurs il est
+      traité comme un caractère littéral.
+    """
+    if url is None:
+        raise ValueError("URL vide")
+    trimmed = url.strip()
+    if not trimmed:
+        raise ValueError("URL vide")
+
+    try:
+        trimmed.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"URL {url!r}: caractères non-ASCII interdits") from exc
+
+    if len(trimmed) > URL_MAX_LENGTH:
+        raise ValueError(
+            f"URL {url!r}: {len(trimmed)} caractères, maximum {URL_MAX_LENGTH}"
+        )
+
+    if "://" in trimmed:
+        raise ValueError(
+            f"URL {url!r}: ne pas inclure le schéma de protocole "
+            "(http://, https://, ...)"
+        )
+
+    if trimmed.startswith("*"):
+        raise ValueError(
+            f"URL {url!r}: '*' interdit en début de domaine. "
+            "Utilisez un point initial ('.exemple.com') pour un wildcard."
+        )
+
+    host_part = trimmed[1:] if trimmed.startswith(".") else trimmed
+
+    for sep in ("/", "?"):
+        idx = host_part.find(sep)
+        if idx != -1:
+            host_part = host_part[:idx]
+    if not host_part:
+        raise ValueError(f"URL {url!r}: domaine manquant")
+
+    host = host_part
+    if ":" in host:
+        host, port = host.split(":", 1)
+        if not port.isdigit():
+            raise ValueError(f"URL {url!r}: port invalide {port!r}")
+
+    if len(host) > DOMAIN_MAX_LENGTH:
+        raise ValueError(
+            f"URL {url!r}: domaine de {len(host)} caractères, "
+            f"maximum {DOMAIN_MAX_LENGTH}"
+        )
+
+    if host != host.lower():
+        raise ValueError(f"URL {url!r}: le domaine doit être en minuscules")
+
+    labels = host.split(".")
+    if any(not label for label in labels):
+        raise ValueError(f"URL {url!r}: label de domaine vide (point en trop)")
+    if len(labels) < 2:
+        raise ValueError(
+            f"URL {url!r}: un TLD seul n'est pas autorisé "
+            "(format host.domain requis)"
+        )
+
+    for label in labels:
+        if len(label) > LABEL_MAX_LENGTH:
+            raise ValueError(
+                f"URL {url!r}: label {label!r} > {LABEL_MAX_LENGTH} caractères"
+            )
+        if not _LABEL_RE.match(label):
+            raise ValueError(
+                f"URL {url!r}: label {label!r} invalide "
+                "(autorisé: a-z, 0-9, '-', '_')"
+            )
+
+    tld, sld, subdomains = labels[-1], labels[-2], labels[:-2]
+    if "_" in tld:
+        raise ValueError(f"URL {url!r}: underscore interdit dans le TLD {tld!r}")
+    if "_" in sld and subdomains:
+        raise ValueError(
+            f"URL {url!r}: underscore interdit dans le SLD {sld!r} "
+            "lorsqu'un sous-domaine est présent"
+        )
+    for sub in subdomains:
+        if sub == "_":
+            raise ValueError(
+                f"URL {url!r}: un sous-domaine ne peut pas être uniquement '_'"
+            )
+
+    return trimmed
+
+
+def validate_urls(urls: list[str]) -> list[str]:
+    """Valide une liste d'URLs. Rejette tout le lot si une URL est invalide."""
+    validated: list[str] = []
+    errors: list[str] = []
+    for url in urls:
+        try:
+            validated.append(validate_url(url))
+        except ValueError as exc:
+            errors.append(str(exc))
+    if errors:
+        raise ValueError(
+            "URL(s) invalide(s) — requête rejetée:\n  - " + "\n  - ".join(errors)
+        )
+    return validated
 
 
 def build_client_config(zia_cfg: dict[str, Any]) -> dict[str, Any]:
@@ -136,19 +268,40 @@ def create_url_category(
     name: str,
     *,
     urls: list[str] | None = None,
+    ip_ranges: list[str] | None = None,
+    keywords: list[str] | None = None,
     super_category: str = "USER_DEFINED",
     description: str | None = None,
 ) -> dict[str, Any]:
-    """Create a custom ZIA URL category."""
+    """
+    Create a custom ZIA URL category.
+
+    Au moins un contenu parmi ``urls`` / ``ip_ranges`` / ``keywords`` est
+    requis (l'API ZIA rejette sinon avec
+    ``At least 1 URL or keyword should be entered``).
+
+    Note: ``ip_ranges`` nécessite souvent que la fonctionnalité "custom IP"
+    soit activée sur le tenant.
+    """
     if not name or not name.strip():
         raise ValueError("name requis pour créer une URL category")
+
+    if not urls and not ip_ranges and not keywords:
+        raise ValueError(
+            "Fournir au moins --url, --ip-range ou --keyword "
+            "(requis par l'API ZIA)."
+        )
 
     kwargs: dict[str, Any] = {
         "configured_name": name.strip(),
         "custom_category": True,
     }
     if urls:
-        kwargs["urls"] = urls
+        kwargs["urls"] = validate_urls(urls)
+    if ip_ranges:
+        kwargs["ip_ranges"] = ip_ranges
+    if keywords:
+        kwargs["keywords"] = keywords
     if description:
         kwargs["description"] = description
 
@@ -172,6 +325,7 @@ def add_urls_to_category(
     """Add one or more URLs to an existing URL category."""
     if not urls:
         raise ValueError("Au moins une URL est requise")
+    urls = validate_urls(urls)
 
     cat = get_url_category(zia_cfg, category_id=category_id, category_name=category_name)
     cid = str(cat["id"])
@@ -241,6 +395,316 @@ def list_forwarding_rules(
         if err:
             raise RuntimeError(f"Failed to list forwarding rules: {err}")
         return [r.as_dict() if hasattr(r, "as_dict") else dict(r) for r in (rules or [])]
+
+
+# --- IP groups (ZIA Cloud Firewall) ----------------------------------------
+DEST_IP_GROUP_TYPES = ("DSTN_IP", "DSTN_FQDN", "DSTN_DOMAIN", "DSTN_OTHER")
+
+
+def _to_dict(obj: Any) -> dict[str, Any]:
+    return obj.as_dict() if hasattr(obj, "as_dict") else dict(obj)
+
+
+def _resolve_group_by_name(list_fn: Any, group_name: str, kind: str) -> dict[str, Any]:
+    """Résout un groupe par nom (match exact casefold) via un lister ``list_fn(search=...)``."""
+    needle = (group_name or "").strip().casefold()
+    if not needle:
+        raise ValueError(f"nom de {kind} vide")
+
+    def _exact(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [g for g in items if str(g.get("name") or "").casefold() == needle]
+
+    matches = _exact(list_fn(search=group_name))
+    if not matches:
+        matches = _exact(list_fn(search=None))
+    if not matches:
+        raise RuntimeError(f"{kind} introuvable: {group_name!r}")
+    if len(matches) > 1:
+        ids = ", ".join(str(g.get("id")) for g in matches)
+        raise RuntimeError(f"Plusieurs {kind} pour {group_name!r}: {ids}")
+    return matches[0]
+
+
+def list_ip_destination_groups(
+    zia_cfg: dict[str, Any],
+    *,
+    search: str | None = None,
+    exclude_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """List ZIA destination IP groups."""
+    query_params: dict[str, Any] = {}
+    if search:
+        query_params["search"] = search
+    kwargs: dict[str, Any] = {}
+    if exclude_type:
+        kwargs["exclude_type"] = exclude_type
+
+    with get_client(zia_cfg) as client:
+        groups, _, err = client.zia.cloud_firewall.list_ip_destination_groups(
+            query_params=query_params or None, **kwargs
+        )
+        if err:
+            raise RuntimeError(f"Failed to list destination IP groups: {err}")
+        return [_to_dict(g) for g in (groups or [])]
+
+
+def get_ip_destination_group(
+    zia_cfg: dict[str, Any],
+    *,
+    group_id: int | str | None = None,
+    group_name: str | None = None,
+) -> dict[str, Any]:
+    """Get a destination IP group by ID or name."""
+    if group_id is not None and str(group_id).strip():
+        with get_client(zia_cfg) as client:
+            grp, _, err = client.zia.cloud_firewall.get_ip_destination_group(int(group_id))
+            if err:
+                raise RuntimeError(f"Failed to get destination IP group {group_id}: {err}")
+            if grp is None:
+                raise RuntimeError(f"Destination IP group introuvable: {group_id}")
+            return _to_dict(grp)
+    if not group_name or not group_name.strip():
+        raise ValueError("--ip-group-id ou --ip-group-name requis")
+    return _resolve_group_by_name(
+        lambda search=None: list_ip_destination_groups(zia_cfg, search=search),
+        group_name,
+        "destination IP group",
+    )
+
+
+def create_ip_destination_group(
+    zia_cfg: dict[str, Any],
+    name: str,
+    *,
+    group_type: str = "DSTN_IP",
+    addresses: list[str] | None = None,
+    description: str | None = None,
+    countries: list[str] | None = None,
+    ip_categories: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create a ZIA destination IP group."""
+    if not name or not name.strip():
+        raise ValueError("name requis pour créer un destination IP group")
+    if group_type not in DEST_IP_GROUP_TYPES:
+        raise ValueError(
+            f"type invalide {group_type!r}. Types: {', '.join(DEST_IP_GROUP_TYPES)}"
+        )
+    if group_type == "DSTN_OTHER":
+        if not countries and not ip_categories:
+            raise ValueError("DSTN_OTHER requiert --country et/ou --ip-category")
+    elif not addresses:
+        raise ValueError(f"{group_type} requiert au moins --address")
+
+    kwargs: dict[str, Any] = {"name": name.strip(), "type": group_type}
+    if description:
+        kwargs["description"] = description
+    if addresses:
+        kwargs["addresses"] = addresses
+    if countries:
+        kwargs["countries"] = countries
+    if ip_categories:
+        kwargs["ip_categories"] = ip_categories
+
+    with get_client(zia_cfg) as client:
+        created, _, err = client.zia.cloud_firewall.add_ip_destination_group(**kwargs)
+        if err:
+            raise RuntimeError(f"Failed to create destination IP group {name!r}: {err}")
+        return _to_dict(created)
+
+
+def update_ip_destination_group(
+    zia_cfg: dict[str, Any],
+    *,
+    group_id: int | str | None = None,
+    group_name: str | None = None,
+    name: str | None = None,
+    group_type: str | None = None,
+    addresses: list[str] | None = None,
+    description: str | None = None,
+    countries: list[str] | None = None,
+    ip_categories: list[str] | None = None,
+    append_addresses: bool = False,
+) -> dict[str, Any]:
+    """Update a destination IP group (replace by default, append with ``append_addresses``)."""
+    current = get_ip_destination_group(zia_cfg, group_id=group_id, group_name=group_name)
+    gid = int(current["id"])
+
+    kwargs: dict[str, Any] = {
+        "name": name if name is not None else current.get("name"),
+        "type": group_type if group_type is not None else current.get("type"),
+    }
+    desc = description if description is not None else current.get("description")
+    if desc is not None:
+        kwargs["description"] = desc
+
+    if addresses is not None:
+        kwargs["addresses"] = addresses
+    elif current.get("addresses") is not None:
+        kwargs["addresses"] = current.get("addresses")
+
+    if countries is not None:
+        kwargs["countries"] = countries
+    elif current.get("countries"):
+        kwargs["countries"] = current.get("countries")
+
+    if ip_categories is not None:
+        kwargs["ip_categories"] = ip_categories
+    elif current.get("ip_categories"):
+        kwargs["ip_categories"] = current.get("ip_categories")
+
+    # override=false => append les addresses fournies aux existantes (API ZIA)
+    query_params = (
+        {"override": False} if append_addresses and addresses is not None else None
+    )
+
+    with get_client(zia_cfg) as client:
+        updated, _, err = client.zia.cloud_firewall.update_ip_destination_group(
+            gid, query_params=query_params, **kwargs
+        )
+        if err:
+            raise RuntimeError(f"Failed to update destination IP group {gid}: {err}")
+        return _to_dict(updated)
+
+
+def delete_ip_destination_group(
+    zia_cfg: dict[str, Any],
+    *,
+    group_id: int | str | None = None,
+    group_name: str | None = None,
+) -> dict[str, Any]:
+    """Delete a destination IP group by ID or name."""
+    current = get_ip_destination_group(zia_cfg, group_id=group_id, group_name=group_name)
+    gid = int(current["id"])
+    with get_client(zia_cfg) as client:
+        _, _, err = client.zia.cloud_firewall.delete_ip_destination_group(gid)
+        if err:
+            raise RuntimeError(f"Failed to delete destination IP group {gid}: {err}")
+    return {"deleted": True, "id": gid, "name": current.get("name")}
+
+
+def list_ip_source_groups(
+    zia_cfg: dict[str, Any],
+    *,
+    search: str | None = None,
+) -> list[dict[str, Any]]:
+    """List ZIA source IP groups."""
+    query_params: dict[str, Any] = {}
+    if search:
+        query_params["search"] = search
+    with get_client(zia_cfg) as client:
+        groups, _, err = client.zia.cloud_firewall.list_ip_source_groups(
+            query_params=query_params or None
+        )
+        if err:
+            raise RuntimeError(f"Failed to list source IP groups: {err}")
+        return [_to_dict(g) for g in (groups or [])]
+
+
+def get_ip_source_group(
+    zia_cfg: dict[str, Any],
+    *,
+    group_id: int | str | None = None,
+    group_name: str | None = None,
+) -> dict[str, Any]:
+    """Get a source IP group by ID or name."""
+    if group_id is not None and str(group_id).strip():
+        with get_client(zia_cfg) as client:
+            grp, _, err = client.zia.cloud_firewall.get_ip_source_group(int(group_id))
+            if err:
+                raise RuntimeError(f"Failed to get source IP group {group_id}: {err}")
+            if grp is None:
+                raise RuntimeError(f"Source IP group introuvable: {group_id}")
+            return _to_dict(grp)
+    if not group_name or not group_name.strip():
+        raise ValueError("--ip-group-id ou --ip-group-name requis")
+    return _resolve_group_by_name(
+        lambda search=None: list_ip_source_groups(zia_cfg, search=search),
+        group_name,
+        "source IP group",
+    )
+
+
+def create_ip_source_group(
+    zia_cfg: dict[str, Any],
+    name: str,
+    *,
+    ip_addresses: list[str] | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Create a ZIA source IP group."""
+    if not name or not name.strip():
+        raise ValueError("name requis pour créer un source IP group")
+    if not ip_addresses:
+        raise ValueError("Au moins une --ip est requise pour un source IP group")
+
+    kwargs: dict[str, Any] = {"name": name.strip(), "ip_addresses": ip_addresses}
+    if description:
+        kwargs["description"] = description
+
+    with get_client(zia_cfg) as client:
+        created, _, err = client.zia.cloud_firewall.add_ip_source_group(**kwargs)
+        if err:
+            raise RuntimeError(f"Failed to create source IP group {name!r}: {err}")
+        return _to_dict(created)
+
+
+def update_ip_source_group(
+    zia_cfg: dict[str, Any],
+    *,
+    group_id: int | str | None = None,
+    group_name: str | None = None,
+    name: str | None = None,
+    ip_addresses: list[str] | None = None,
+    description: str | None = None,
+    append_ips: bool = False,
+) -> dict[str, Any]:
+    """Update a source IP group (replace by default, append with ``append_ips``)."""
+    current = get_ip_source_group(zia_cfg, group_id=group_id, group_name=group_name)
+    gid = int(current["id"])
+
+    kwargs: dict[str, Any] = {
+        "name": name if name is not None else current.get("name"),
+    }
+    desc = description if description is not None else current.get("description")
+    if desc is not None:
+        kwargs["description"] = desc
+
+    if ip_addresses is not None:
+        if append_ips:
+            existing = list(current.get("ip_addresses") or [])
+            seen = {ip.casefold() for ip in existing}
+            merged = list(existing)
+            for ip in ip_addresses:
+                if ip.casefold() not in seen:
+                    seen.add(ip.casefold())
+                    merged.append(ip)
+            kwargs["ip_addresses"] = merged
+        else:
+            kwargs["ip_addresses"] = ip_addresses
+    else:
+        kwargs["ip_addresses"] = list(current.get("ip_addresses") or [])
+
+    with get_client(zia_cfg) as client:
+        updated, _, err = client.zia.cloud_firewall.update_ip_source_group(gid, **kwargs)
+        if err:
+            raise RuntimeError(f"Failed to update source IP group {gid}: {err}")
+        return _to_dict(updated)
+
+
+def delete_ip_source_group(
+    zia_cfg: dict[str, Any],
+    *,
+    group_id: int | str | None = None,
+    group_name: str | None = None,
+) -> dict[str, Any]:
+    """Delete a source IP group by ID or name."""
+    current = get_ip_source_group(zia_cfg, group_id=group_id, group_name=group_name)
+    gid = int(current["id"])
+    with get_client(zia_cfg) as client:
+        _, _, err = client.zia.cloud_firewall.delete_ip_source_group(gid)
+        if err:
+            raise RuntimeError(f"Failed to delete source IP group {gid}: {err}")
+    return {"deleted": True, "id": gid, "name": current.get("name")}
 
 
 def get_user(zia_cfg: dict[str, Any], user_id: int | str) -> dict[str, Any]:
@@ -386,6 +850,7 @@ def set_user_groups(
     group_ids: list[int | str] | None = None,
     group_names: list[str] | None = None,
     add: bool = False,
+    remove: bool = False,
     department_id: int | str | None = None,
     department_name: str | None = None,
     default_department_id: int | str | None = None,
@@ -397,12 +862,17 @@ def set_user_groups(
         user_id: ID ZIA du user.
         group_ids: IDs de groupes.
         group_names: Noms de groupes (ex: \"GROUPE\").
-        add: Si True, ajoute aux groupes existants au lieu de remplacer.
+        add: Si True, ajoute les groupes fournis aux groupes existants (union).
+        remove: Si True, retire les groupes fournis en conservant les autres
+            (différence). Mutuellement exclusif avec ``add``.
         department_id / department_name: Force le département de l'user.
         default_department_id: Département utilisé seulement si l'user n'en a pas
             (requis par l'API ZIA sur PUT /users).
     """
-    groups_payload = resolve_group_ids(zia_cfg, group_ids=group_ids, group_names=group_names)
+    if add and remove:
+        raise ValueError("add et remove sont mutuellement exclusifs")
+
+    target_groups = resolve_group_ids(zia_cfg, group_ids=group_ids, group_names=group_names)
     forced_department_id = resolve_department_id(
         zia_cfg, department_id=department_id, department_name=department_name
     )
@@ -416,18 +886,24 @@ def set_user_groups(
 
         current = user.as_dict() if hasattr(user, "as_dict") else dict(user)
 
-        if add:
-            existing = [
-                {"id": int(g["id"])}
-                for g in (current.get("groups") or [])
-                if g.get("id") not in (None, 0, "0")
-            ]
+        existing = [
+            {"id": int(g["id"])}
+            for g in (current.get("groups") or [])
+            if g.get("id") not in (None, 0, "0")
+        ]
+
+        if remove:
+            remove_ids = {g["id"] for g in target_groups}
+            groups_payload = [g for g in existing if g["id"] not in remove_ids]
+        elif add:
             seen = {g["id"] for g in existing}
-            for g in groups_payload:
+            groups_payload = list(existing)
+            for g in target_groups:
                 if g["id"] not in seen:
                     seen.add(g["id"])
-                    existing.append(g)
-            groups_payload = existing
+                    groups_payload.append(g)
+        else:
+            groups_payload = target_groups
 
         department = current.get("department")
         if forced_department_id is not None:
@@ -455,3 +931,22 @@ def set_user_groups(
         if err:
             raise RuntimeError(f"Failed to update groups for user {user_id}: {err}")
         return updated.as_dict() if hasattr(updated, "as_dict") else dict(updated)
+
+
+# --- Config activation ------------------------------------------------------
+def activation_status(zia_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Get the ZIA configuration activation status (e.g. ACTIVE / PENDING)."""
+    with get_client(zia_cfg) as client:
+        result, _, err = client.zia.activate.status()
+        if err:
+            raise RuntimeError(f"Failed to get ZIA activation status: {err}")
+        return _to_dict(result)
+
+
+def activate_changes(zia_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Activate pending ZIA configuration changes."""
+    with get_client(zia_cfg) as client:
+        result, _, err = client.zia.activate.activate()
+        if err:
+            raise RuntimeError(f"Failed to activate ZIA changes: {err}")
+        return _to_dict(result)

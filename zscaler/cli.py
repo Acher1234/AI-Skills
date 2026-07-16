@@ -208,6 +208,8 @@ def cmd_zia(args: argparse.Namespace) -> int:
             zia_cfg,
             args.name,
             urls=args.url or None,
+            ip_ranges=args.ip_range or None,
+            keywords=args.keyword or None,
             super_category=args.super_category,
             description=args.description,
         )
@@ -255,16 +257,119 @@ def cmd_zia(args: argparse.Namespace) -> int:
             raise ValueError("--user-id ou --username est requis pour set-groups")
         if not args.group_id and not args.group_name:
             raise ValueError("Fournir au moins --group-id ou --group-name")
+        if args.add and args.remove:
+            raise ValueError("--add et --remove sont mutuellement exclusifs")
         updated = zia.set_user_groups(
             zia_cfg,
             user_id,
             group_ids=args.group_id,
             group_names=args.group_name,
             add=args.add,
+            remove=args.remove,
             department_id=args.department_id,
             department_name=args.department_name,
         )
         _print_json(updated)
+    elif args.action == "dest-ip-groups":
+        _print_json(
+            zia.list_ip_destination_groups(
+                zia_cfg, search=args.search, exclude_type=args.exclude_type
+            )
+        )
+    elif args.action == "get-dest-ip-group":
+        if not args.ip_group_id and not args.ip_group_name:
+            raise ValueError("--ip-group-id ou --ip-group-name requis")
+        _print_json(
+            zia.get_ip_destination_group(
+                zia_cfg, group_id=args.ip_group_id, group_name=args.ip_group_name
+            )
+        )
+    elif args.action == "create-dest-ip-group":
+        if not args.name:
+            raise ValueError("--name requis pour create-dest-ip-group")
+        _print_json(
+            zia.create_ip_destination_group(
+                zia_cfg,
+                args.name,
+                group_type=args.ip_group_type or "DSTN_IP",
+                addresses=args.address or None,
+                description=args.description,
+                countries=args.country or None,
+                ip_categories=args.ip_category or None,
+            )
+        )
+    elif args.action == "update-dest-ip-group":
+        if not args.ip_group_id and not args.ip_group_name:
+            raise ValueError("--ip-group-id ou --ip-group-name requis")
+        _print_json(
+            zia.update_ip_destination_group(
+                zia_cfg,
+                group_id=args.ip_group_id,
+                group_name=args.ip_group_name,
+                name=args.name,
+                group_type=args.ip_group_type,
+                addresses=args.address or None,
+                description=args.description,
+                countries=args.country or None,
+                ip_categories=args.ip_category or None,
+                append_addresses=args.append,
+            )
+        )
+    elif args.action == "delete-dest-ip-group":
+        if not args.ip_group_id and not args.ip_group_name:
+            raise ValueError("--ip-group-id ou --ip-group-name requis")
+        _print_json(
+            zia.delete_ip_destination_group(
+                zia_cfg, group_id=args.ip_group_id, group_name=args.ip_group_name
+            )
+        )
+    elif args.action == "source-ip-groups":
+        _print_json(zia.list_ip_source_groups(zia_cfg, search=args.search))
+    elif args.action == "get-source-ip-group":
+        if not args.ip_group_id and not args.ip_group_name:
+            raise ValueError("--ip-group-id ou --ip-group-name requis")
+        _print_json(
+            zia.get_ip_source_group(
+                zia_cfg, group_id=args.ip_group_id, group_name=args.ip_group_name
+            )
+        )
+    elif args.action == "create-source-ip-group":
+        if not args.name:
+            raise ValueError("--name requis pour create-source-ip-group")
+        _print_json(
+            zia.create_ip_source_group(
+                zia_cfg,
+                args.name,
+                ip_addresses=args.ip or None,
+                description=args.description,
+            )
+        )
+    elif args.action == "update-source-ip-group":
+        if not args.ip_group_id and not args.ip_group_name:
+            raise ValueError("--ip-group-id ou --ip-group-name requis")
+        _print_json(
+            zia.update_ip_source_group(
+                zia_cfg,
+                group_id=args.ip_group_id,
+                group_name=args.ip_group_name,
+                name=args.name,
+                ip_addresses=args.ip or None,
+                description=args.description,
+                append_ips=args.append,
+            )
+        )
+    elif args.action == "delete-source-ip-group":
+        if not args.ip_group_id and not args.ip_group_name:
+            raise ValueError("--ip-group-id ou --ip-group-name requis")
+        _print_json(
+            zia.delete_ip_source_group(
+                zia_cfg, group_id=args.ip_group_id, group_name=args.ip_group_name
+            )
+        )
+    elif args.action == "activation-status":
+        _print_json(zia.activation_status(zia_cfg))
+    elif args.action == "activate":
+        _print_json(zia.activate_changes(zia_cfg))
     else:
         raise ValueError(f"Action ZIA inconnue: {args.action}")
     return 0
@@ -323,6 +428,18 @@ def build_parser() -> argparse.ArgumentParser:
             "forwarding-rules",
             "get-user",
             "set-groups",
+            "dest-ip-groups",
+            "get-dest-ip-group",
+            "create-dest-ip-group",
+            "update-dest-ip-group",
+            "delete-dest-ip-group",
+            "source-ip-groups",
+            "get-source-ip-group",
+            "create-source-ip-group",
+            "update-source-ip-group",
+            "delete-source-ip-group",
+            "activation-status",
+            "activate",
         ],
     )
     p_zia.add_argument("--page", type=int, default=1)
@@ -337,6 +454,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--add",
         action="store_true",
         help="Ajoute aux groupes existants au lieu de remplacer (set-groups)",
+    )
+    p_zia.add_argument(
+        "--remove",
+        action="store_true",
+        help="Retire les groupes fournis, conserve les autres (set-groups)",
     )
     p_zia.add_argument(
         "--department-id",
@@ -400,6 +522,74 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="URL à ajouter/retirer (répétable)",
+    )
+    p_zia.add_argument(
+        "--ip-range",
+        action="append",
+        default=[],
+        help="Plage IP pour create-url-category (ex: 1.2.3.4 ou 1.2.3.0/24, répétable)",
+    )
+    p_zia.add_argument(
+        "--keyword",
+        action="append",
+        default=[],
+        help="Keyword pour create-url-category (répétable)",
+    )
+    p_zia.add_argument(
+        "--ip-group-id",
+        type=str,
+        default=None,
+        help="ID d'un IP group firewall (get/update/delete dest & source)",
+    )
+    p_zia.add_argument(
+        "--ip-group-name",
+        type=str,
+        default=None,
+        help="Nom d'un IP group firewall (get/update/delete dest & source)",
+    )
+    p_zia.add_argument(
+        "--append",
+        action="store_true",
+        help="update-*-ip-group : ajoute au lieu de remplacer",
+    )
+    p_zia.add_argument(
+        "--exclude-type",
+        type=str,
+        default=None,
+        choices=list(zia.DEST_IP_GROUP_TYPES),
+        help="Filtre list dest-ip-groups (exclut ce type)",
+    )
+    p_zia.add_argument(
+        "--type",
+        dest="ip_group_type",
+        type=str,
+        default=None,
+        choices=list(zia.DEST_IP_GROUP_TYPES),
+        help="Type de destination IP group (create/update, défaut create: DSTN_IP)",
+    )
+    p_zia.add_argument(
+        "--address",
+        action="append",
+        default=[],
+        help="Adresse IP/FQDN/domaine pour un destination IP group (répétable)",
+    )
+    p_zia.add_argument(
+        "--ip",
+        action="append",
+        default=[],
+        help="Adresse IP pour un source IP group (répétable)",
+    )
+    p_zia.add_argument(
+        "--country",
+        action="append",
+        default=[],
+        help="Pays pour dest IP group DSTN_OTHER (ex: COUNTRY_US, répétable)",
+    )
+    p_zia.add_argument(
+        "--ip-category",
+        action="append",
+        default=[],
+        help="URL category pour dest IP group DSTN_OTHER (ex: CUSTOM_01, répétable)",
     )
     p_zia.set_defaults(func=cmd_zia)
 

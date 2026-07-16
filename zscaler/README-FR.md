@@ -96,6 +96,17 @@ python cli.py zia create-url-category --name "Ma catégorie" --url exemple.com [
 python cli.py zia add-url    --category-name "Ma catégorie" --url exemple.com
 python cli.py zia remove-url --category-name "Ma catégorie" --url exemple.com
 python cli.py zia forwarding-rules [--search TEXTE]
+python cli.py zia dedicated-ips
+python cli.py zia create-forwarding-rule \
+  --name "DIP-GroupeA" \
+  --gateway-name "Mon Dedicated IP" \
+  --group-name "Groupe A" \
+  --category-name "Ma catégorie" \
+  --dest-ip 203.0.113.10 \
+  [--dest-ip-group-name "Mes destinations"] \
+  [--order 1] [--rank 7] [--state ENABLED]
+python cli.py zia get-forwarding-rule --rule-name "DIP-GroupeA"
+python cli.py zia delete-forwarding-rule --rule-name "DIP-GroupeA"
 python cli.py zia get-user   --username user@exemple.com
 python cli.py zia set-groups --username user@exemple.com --group-name "Groupe" --department-name "Dépt"
 python cli.py zia activation-status   # statut pending/active
@@ -105,6 +116,50 @@ python cli.py zia activate            # active les changements en attente
 python cli.py zidentity groups
 python cli.py zidentity users
 ```
+
+### Forwarding rules Dedicated IP
+
+Une rule `ENATDEDIP` route le trafic matching vers une Dedicated IP (gateway). Critères combinables :
+
+| Critère | Flags |
+|---------|-------|
+| Groupes users | `--group-id` / `--group-name` (répétables) |
+| URL categories | `--category-id` (ex: `CUSTOM_03`) / `--category-name` (répétables) → `destIpCategories` |
+| Dest IP | `--dest-ip` (IP/CIDR/FQDN) et/ou `--dest-ip-group-id` / `--dest-ip-group-name` |
+| Gateway | `--gateway-id` / `--gateway-name` (**requis** pour `ENATDEDIP`) |
+| Méthode | `--forward-method` (défaut `ENATDEDIP` ; aussi `DIRECT`, `PROXYCHAIN`, `ZPA`, `GEOIP`, …) |
+| Ordre / état | `--order`, `--rank` (1–7, défaut 7), `--state` (`ENABLED` / `DISABLED`) |
+
+```bash
+# Lister les gateways Dedicated IP disponibles
+python cli.py zia dedicated-ips
+
+# Créer une rule : groupe + URL category + dest IP → Dedicated IP
+python cli.py zia create-forwarding-rule \
+  --name "DIP-Sales" \
+  --gateway-id 123456 \
+  --group-name "Sales" \
+  --category-id CUSTOM_01 \
+  --dest-ip 198.51.100.0/24 \
+  --dest-ip 203.0.113.50
+
+# Pattern typique : une rule par pays (groupe → Salesforce → gateway pays)
+python cli.py zia create-forwarding-rule \
+  --name "SF Canada - use dedicated ip" \
+  --gateway-name "Canada - Gateway" \
+  --group-name "Vo2 - Canada" \
+  --category-id CUSTOM_03
+
+python cli.py zia get-forwarding-rule --rule-name "SF Canada - use dedicated ip"
+python cli.py zia delete-forwarding-rule --rule-id 2119366
+
+# Activer la config
+python cli.py zia activate
+```
+
+> Nom de rule limité à **31 caractères**. Après create/delete, lancer `zia activate`.
+>
+> Note API : le champ wire est `dedicatedIPGateway` (`IP` en majuscules). Le CLI le pose correctement ; ne pas compter sur la conversion SDK `dedicated_ip_gateway` → `dedicatedIpGateway`.
 
 ### Activation de la configuration (ZIA uniquement)
 
@@ -285,6 +340,10 @@ python cli.py zia delete-source-ip-group --ip-group-name "Corp Sources"
 | `zia create-url-category` | Crée une catégorie d'URL (`--url` / `--ip-range` / `--keyword`) |
 | `zia add-url` / `remove-url` | Ajoute / retire des URLs d'une catégorie |
 | `zia forwarding-rules` | Liste les forwarding rules |
+| `zia get-forwarding-rule` | Récupère une forwarding rule (par id ou nom) |
+| `zia create-forwarding-rule` | Crée une forwarding rule (défaut: Dedicated IP / `ENATDEDIP`) |
+| `zia delete-forwarding-rule` | Supprime une forwarding rule |
+| `zia dedicated-ips` | Liste les Dedicated IP gateways |
 | `zia get-user` | Récupère un utilisateur (par nom ou ID) |
 | `zia set-groups` | Assigne groupes / département à un utilisateur (`--add` / `--remove` / replace) |
 | `zia dest-ip-groups` | Liste les destination IP groups (`--search`, `--exclude-type`) |

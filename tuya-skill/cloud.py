@@ -207,7 +207,7 @@ def cmd_cloud_sync(config, show_keys=False):
         entry = {
             "id": d.get("id"),
             "name": name,
-            "local_key": d.get("localKey", ""),
+            "key": d.get("localKey", ""),
             "ip": d.get("ip", ""),
             "version": "",
             "model": d.get("model", ""),
@@ -225,7 +225,7 @@ def cmd_cloud_sync(config, show_keys=False):
     print(f"✅ {len(devices)} appareil(s) → {path}")
     if show_keys:
         for d in devices:
-            key = d["local_key"]
+            key = d["key"]
             shown = f"{key[:10]}..." if key else "-"
             print(f"  • {d['name']:25s} | key: {shown}")
     else:

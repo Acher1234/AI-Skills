@@ -1,0 +1,20 @@
+config.json
+__pycache__/
+*.pyc
+devices.json
+# tinytuya (local) — contiennent les local keys, ne jamais committer
+devices.json
+tuya-scan.json
+tinytuya.json
+tuya-raw.json
+snapshot.json
+__pycache__/
+*.pyc
+config.json
+config.json
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.log
+.DS_Store

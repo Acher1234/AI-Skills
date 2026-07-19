@@ -19,6 +19,11 @@ Use for Tuya cloud or local LAN device control. Trigger phrases: "turn on plug",
 
 Entrypoint: `./tuya.py` (or `./cmd.py` — equivalent).
 
+## Shared environment (see AI-Skills README)
+
+- **Python**: run through the shared venv — `~/.ai-skills/.venv/bin/python tuya.py …`. Install the deps once into the shared venv from the skill dir: `~/.ai-skills/install.sh pip init .` (installs this skill's `requirements.txt`; do not create a per-skill venv).
+- **Config**: this skill keeps its **own** `config.json` — placed **next to the installed `SKILL.md`** (the chosen client's skill folder: `~/.cursor/skills/…`, `./.cursor/skills/…` for a project, `$HERMES_HOME/.../…`, etc.), exactly where a `.env` would go. Override with `TUYA_CONFIG_PATH` if needed. Never commit `config.json`, `devices.json`, or `tuya-scan.json` (they hold local keys).
+
 ## Slash commands
 
 ### Cloud
@@ -50,10 +55,10 @@ Entrypoint: `./tuya.py` (or `./cmd.py` — equivalent).
 
 ## How to run
 
-1. `cd` into `tuya-skill/`.
-2. Ensure deps (`tuya-connector-python`; `tinytuya` for local) and `config.json` (`TUYA_CONFIG_PATH` optional).
+1. `cd ~/.ai-skills/tuya-skill`.
+2. Ensure the shared venv has the deps (`~/.ai-skills/install.sh pip init .`) and `config.json` **next to the installed `SKILL.md`** (`TUYA_CONFIG_PATH` overrides).
 3. Prefer resolving device name → id via `/tuya_devices` or `/tuya_local-devices` before on/off.
-4. Run the CLI for the slash command; return output.
+4. Run the CLI for the slash command with `~/.ai-skills/.venv/bin/python tuya.py <cmd>`; return output.
 
 ## Notes
 

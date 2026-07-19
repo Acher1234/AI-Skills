@@ -17,6 +17,11 @@ Use for qBittorrent WebUI management. Trigger phrases: "list torrents", "add mag
 
 `~/.ai-skills/qbittorrent-scripts`
 
+## Shared environment (see AI-Skills README)
+
+- **Python**: run through the shared venv — `~/.ai-skills/.venv/bin/python qbittorrent.py …` (stdlib-only here; if deps are ever added, install once with `~/.ai-skills/install.sh pip init .`). Do not create a per-skill venv.
+- **Config**: this skill keeps its **own** `config.json` — placed **next to the installed `SKILL.md`** (the chosen client's skill folder: `~/.cursor/skills/…`, `./.cursor/skills/…` for a project, `$HERMES_HOME/.../…`, etc.), exactly where a `.env` would go. Override with `QBITTORRENT_CONFIG_PATH` if needed. Never commit real credentials.
+
 ## Slash commands
 
 | Slash | CLI | Description |
@@ -38,9 +43,9 @@ Filters: `all`, `downloading`, `seeding`, `completed`, `paused`, `active`, `inac
 
 ## How to run
 
-1. `cd` into `qbittorrent-scripts/`.
-2. Ensure `QBITTORRENT_CONFIG_PATH` (default `/root/.hermes/qbittorrent-config.json`) or local config from `config.example.json`.
-3. Run the CLI matching the slash command.
+1. `cd ~/.ai-skills/qbittorrent-scripts`.
+2. Ensure `config.json` exists **next to the installed `SKILL.md`** (copy from `config.example.json`); `QBITTORRENT_CONFIG_PATH` overrides the location.
+3. Run the CLI with the shared interpreter: `~/.ai-skills/.venv/bin/python qbittorrent.py <cmd>` (the `./qbittorrent.py …` shorthand in the table assumes the shared venv is on `PATH`).
 4. Return output to the user.
 
 ## Notes

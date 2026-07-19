@@ -16,6 +16,11 @@ Use for C411 / Torznab search and download. Trigger phrases: "search c411", "dow
 
 `~/.ai-skills/c411-torrent`
 
+## Shared environment (see AI-Skills README)
+
+- **Python**: run through the shared venv — `~/.ai-skills/.venv/bin/python c411.py …` (stdlib-only; if deps are ever added, install once with `~/.ai-skills/install.sh pip init .`). Do not create a per-skill venv.
+- **Config**: this skill keeps its **own** `config.json` — placed **next to the installed `SKILL.md`**, i.e. in the chosen client's skill folder (`~/.cursor/skills/c411-torrent/`, `./.cursor/skills/c411-torrent/` for a project, `$HERMES_HOME/.../c411-torrent/`, etc.), exactly where a `.env` would go. Override with `C411_CONFIG_PATH` if needed. Never commit a real API key.
+
 ## Slash commands
 
 | Slash | CLI | Description |
@@ -27,9 +32,9 @@ Categories: `all`, `movies`, `tv`, `music`, `games`, `software`, `anime`, `books
 
 ## How to run
 
-1. `cd` into `c411-torrent/`.
-2. Ensure config exists (`C411_CONFIG_PATH`, default `/root/.hermes/c411-config.json`) — copy from `config.example.json` if needed.
-3. Map the slash command to the CLI row above and execute it.
+1. `cd ~/.ai-skills/c411-torrent`.
+2. Ensure `config.json` exists **next to the installed `SKILL.md`** (the chosen client's skill folder) — copy from `config.example.json` if needed. `C411_CONFIG_PATH` overrides the location.
+3. Map the slash command to the CLI row above and run it with the shared interpreter: `~/.ai-skills/.venv/bin/python c411.py <cmd>`.
 4. Return CLI stdout/stderr to the user.
 
 ## Notes

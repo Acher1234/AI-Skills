@@ -1,0 +1,59 @@
+---
+description: AI-SKILLS hybrid model — shared CLI library, per-workspace .env via common/skill_home
+globs:
+  - "**/SKILL.md"
+  - "**/SKILL_TEMPLATE.md"
+  - "common/**"
+  - "**/_skill_home.py"
+  - "**/cli.py"
+  - "**/action.py"
+  - "**/.env.example"
+alwaysApply: false
+---
+
+# Shared CLI + local secrets
+
+When adding or changing skills in this repo:
+
+## Do
+
+- Keep CLI / Python code under `~/.ai-skills/<skill>/` (this library).
+- Register with **`cp` of `SKILL.md` only** (not full tree), unless the skill is an
+  explicit full-tree exception.
+- Put credentials in **`$DEST/<skill>/.env`** (project: `./.cursor/skills/<skill>/.env`,
+  global: `~/.cursor/skills/<skill>/.env`) — one account per workspace. Skills that keep
+  their own `config.json` may follow the same per-workspace placement.
+- Resolve paths with [`common/skill_home.py`](common/skill_home.py):
+
+```python
+from pathlib import Path
+import sys
+_LIB = Path(__file__).resolve().parent
+sys.path.insert(0, str(_LIB.parent))
+from common.skill_home import SkillHome
+
+_home = SkillHome("my-skill", library_home=_LIB)
+env = _home.env_path()           # per-workspace .env
+lib = _home.get_library_home()   # shared CLI dir
+```
+
+- Expose a thin `<skill>/_skill_home.py` wrapper so local imports stay stable.
+- Document working dir as `~/.ai-skills/<skill>` and the `.env` table in `SKILL.md`.
+- Ship `.env.example` (or `config.example.json`) + gitignore secrets; never commit them.
+
+## Don't
+
+- Don't store the real `.env` / tokens only under `~/.ai-skills/<skill>/` for skills
+  that should support multiple workspaces.
+- Don't `cp -R` the whole skill into Cursor/Hermes for new Python CLIs (shared model).
+- Don't invent a second path helper — extend `common/skill_home.py` instead.
+- Don't hardcode home-dotfiles like `~/.c411-credentials`.
+
+## Install reminder
+
+```bash
+mkdir -p "$DEST/my-skill"
+cp ~/.ai-skills/my-skill/SKILL.md "$DEST/my-skill/SKILL.md"
+cp ~/.ai-skills/my-skill/.env.example "$DEST/my-skill/.env"
+cd ~/.ai-skills/my-skill && ~/.ai-skills/.venv/bin/python cli.py …
+```

@@ -29,6 +29,7 @@ tool only gets the lightweight `SKILL.md`.
 ```
 ~/.ai-skills/            shared library root (this repo, or $AI_SKILLS_HOME)
 ├── install.sh           this installer's helper script
+├── common/              shared helpers — skill_home (lib shared + .env per workspace)
 ├── ext/<repo>/          external git skills, cloned ONCE (shared)
 ├── .venv/               shared Python venv — every python skill reuses it
 ├── AI-PRO-SKILLS/       pro submodule (coolify, zscaler, sf, jira, …)
@@ -36,10 +37,65 @@ tool only gets the lightweight `SKILL.md`.
 
                          node deps via `./install.sh npm init` (shared skill dir)
 
-        │ registering a skill = cp ONLY its SKILL.md ↓
-~/.cursor/skills/<name>/SKILL.md      ~/.claude/skills/<name>/SKILL.md
-~/.hermes/skills/<name>/SKILL.md      ~/.openclaw/skills/<name>/SKILL.md
+        │ register = cp ONLY SKILL.md ; put .env/config next to the registered skill ↓
+~/.cursor/skills/<name>/{SKILL.md,.env}   (or ./.cursor/skills/<name>/ per project)
 ```
+
+**Hybrid model:** CLI code is **shared**; credentials (`.env` / `config.json` / tokens)
+are **per workspace**, resolved by [`common/skill_home.py`](common/skill_home.py)
+(`SkillHome("c411-torrent")`, `SkillHome("tuya")`, …).
+
+## Hybrid model — shared CLI, local secrets (`common/skill_home`)
+
+Do **not** put secrets in `~/.ai-skills/<skill>/` (that would force one account for every
+project). Do **not** copy the full skill tree into Cursor/Hermes for Python CLIs that follow
+this pattern.
+
+| Layer | Location | Shared? |
+|-------|----------|---------|
+| CLI / Python code | `~/.ai-skills/<skill>/` | **Yes** — one copy on the machine |
+| Python deps | `~/.ai-skills/.venv` | **Yes** |
+| Registered skill | `$DEST/<skill>/SKILL.md` only | Lightweight discovery copy |
+| Credentials | `$DEST/<skill>/.env` (or `config.json`) | **No** — per workspace / profile |
+
+**Credential resolution** (`SkillHome("<name>").env_path()`), in order:
+
+1. `<NAME>_ENV_PATH` override (e.g. `C411_TORRENT_ENV_PATH`)
+2. Project: `./.cursor/skills/<name>/.env` (also `.claude` / `.openclaw` / Hermes)
+3. Workspace root: `./.env`
+4. Global: `~/.cursor/skills/<name>/.env` (and Hermes / Claude / OpenClaw equivalents)
+5. Tool-level fallback: `~/.cursor/.env`, `$HERMES_HOME/.env`, …
+
+Skills that keep their own `config.json` follow the same per-workspace placement (next to
+the registered `SKILL.md`); use `SkillHome(...).credential_path("config.json")` to resolve it.
+
+**Authoring a skill that uses it:**
+
+```python
+# <skill>/_skill_home.py — thin wrapper
+from pathlib import Path
+import sys
+_LIB = Path(__file__).resolve().parent
+sys.path.insert(0, str(_LIB.parent))
+from common.skill_home import SkillHome
+_home = SkillHome("my-skill", library_home=_LIB)
+env_path = _home.env_path()
+```
+
+```bash
+# Register (Cursor project = different account per repo)
+mkdir -p ./.cursor/skills/my-skill
+cp ~/.ai-skills/my-skill/SKILL.md ./.cursor/skills/my-skill/SKILL.md
+cp ~/.ai-skills/my-skill/.env.example ./.cursor/skills/my-skill/.env
+# edit ./.cursor/skills/my-skill/.env
+
+# Run from the shared library
+cd ~/.ai-skills/my-skill
+~/.ai-skills/.venv/bin/python cli.py test
+```
+
+Agent authors: Cursor rule [`.cursor/rules/ai-skills-hybrid.mdc`](.cursor/rules/ai-skills-hybrid.mdc)
+encodes the same conventions when editing skills in this repo.
 
 ## Helper script — [`install.sh`](install.sh) (3 commands)
 
@@ -212,7 +268,9 @@ Pick `DEST` from the [Targets table](#targets--scopes): `~/.cursor/skills`, `./.
 
 - Override the shared library location with `AI_SKILLS_HOME` (default `~/.ai-skills`).
 - Never write into `~/.cursor/skills-cursor/` (Cursor built-ins only).
-- Register with `cp` (copy, not move). Keep secrets out of skills; put credentials in the
-  tool's `.env` (`~/.cursor/.env`, `~/.claude/.env`, `$HERMES_HOME/.env`, `~/.openclaw/.env`).
+- Register with `cp` (copy, not move). Prefer **per-skill** credentials next to the registered
+  skill (`$DEST/<name>/.env` or `config.json`) so each workspace can differ; tool-level `.env`
+  (`~/.cursor/.env`, `$HERMES_HOME/.env`, …) remains a fallback. Use
+  [`common/skill_home.py`](common/skill_home.py) from Python CLIs.
 - Claude / OpenClaw support is **in progress** — adjust their paths in the Targets table if needed.
 - Repo: [Acher1234/AI-Skills](https://github.com/Acher1234/AI-Skills.git) — submodule: [AI-PRO-SKILLS](https://github.com/Acher1234/AI-PRO-SKILLS.git)

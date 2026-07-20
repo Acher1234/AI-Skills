@@ -98,7 +98,8 @@ Check the environment:
 ### 3) Which skills
 
 Ask for any of:
-- **built-in** skills from AI-Skills / AI-PRO-SKILLS (catalog below),
+- **built-in** skills from AI-Skills (catalog below),
+- **pro** skills — read `AI-PRO-SKILLS/SKILL.md` for its catalog (don't list them here),
 - an **external git URL** (any skill repo), or
 - a **local path** to a skill folder.
 
@@ -117,15 +118,10 @@ Always also install the meta skill `ai-skills` (this file) into every chosen tar
 
 **Submodule `AI-PRO-SKILLS/`** (`git submodule update --init --recursive`)
 
-| # | Name | Folder | What it does |
-|---|------|--------|--------------|
-| 5 | `coolify` | `AI-PRO-SKILLS/coolify/` | Coolify deploy / status / restart |
-| 6 | `zscaler` | `AI-PRO-SKILLS/zscaler/` | Zscaler ZPA / ZIA / ZIdentity |
-| 7 | `agent-browser` | `AI-PRO-SKILLS/agent-browser/` | Browser automation CLI (npm) |
-| 8 | `sf` | `AI-PRO-SKILLS/SF/` | Salesforce skills ([forcedotcom/sf-skills](https://github.com/forcedotcom/sf-skills.git)) |
-| 9 | `google-workspace` | `AI-PRO-SKILLS/google-workspace/` | Gmail / Calendar / Drive / Docs / Sheets |
-| 10 | `powerpoint` | `AI-PRO-SKILLS/powerpoint/` | Create / edit .pptx decks |
-| 11 | `jira` | `AI-PRO-SKILLS/jira/` | **All** JIRA Assistant skills + `jira-as` CLI — run `/jira` |
+Do **not** enumerate the pro skills here — the submodule is its own installer with its
+own catalog. To offer pro skills, **read `AI-PRO-SKILLS/SKILL.md`** (the `ai-pro-skills`
+meta-skill) and use the catalog listed there. It stays in sync as pro skills are added
+or renamed, so this file never needs updating for them.
 
 **External** — any git URL (cloned into `~/.ai-skills/ext/<name>`).
 
@@ -186,11 +182,7 @@ cp "$SRC/SKILL.md" ./.cursor/skills/cool-skill/SKILL.md
 5. External repo → `./install.sh fetch <url> [name]` (clone once into the shared cache).
 6. **Register = `cp` the `SKILL.md`** into `$DEST/<name>/` for each chosen target (see Copy map); always also copy `ai-skills`.
 7. **Dependencies are each skill's responsibility** — the skill runs `./install.sh pip init .` / `npm init .` on first run into the shared venv (`~/.ai-skills/.venv`), once per machine. The installer never bulk-installs deps.
-8. Special cases (each handled by the skill itself, per its own `SKILL.md`):
-   - `agent-browser` → the skill runs `npm i -g agent-browser && agent-browser install`.
-   - `sf` → run `/sf` (syncs into `~/.ai-skills/sf-skills`).
-   - `jira` → run `/jira` (fetches all skills + `jira-as`).
-   - `google-workspace` / `powerpoint` → copy the **full folder**; Hermes → `$DEST/productivity/<skill>/`.
+8. **Pro skills (`AI-PRO-SKILLS/*`)** → don't handle them here; **read `AI-PRO-SKILLS/SKILL.md`** and follow its catalog / copy map / special cases (e.g. `sf` → `/sf`, `jira` → `/jira`, `agent-browser` npm install, `google-workspace` / `powerpoint` full-folder copy).
 9. Remind: reload the tool(s).
 
 ## Copy map (reference)
@@ -206,13 +198,7 @@ Pick `DEST` from the [Targets table](#targets--scopes): `~/.cursor/skills`, `./.
 | `qbittorrent-scripts/SKILL.md` | `$DEST/qbittorrent/SKILL.md` |
 | `tuya-skill/SKILL.md` | `$DEST/tuya/SKILL.md` |
 | `pc-daily-report/SKILL.md` | `$DEST/pc-daily-report/SKILL.md` |
-| `AI-PRO-SKILLS/coolify/SKILL.md` | `$DEST/coolify/SKILL.md` |
-| `AI-PRO-SKILLS/zscaler/SKILL.md` | `$DEST/zscaler/SKILL.md` |
-| `AI-PRO-SKILLS/agent-browser/SKILL.md` | `$DEST/agent-browser/SKILL.md` |
-| `AI-PRO-SKILLS/SF/SKILL.md` | `$DEST/sf/SKILL.md` |
-| `AI-PRO-SKILLS/jira/SKILL.md` | `$DEST/jira/SKILL.md` (then run `/jira`) |
-| `AI-PRO-SKILLS/google-workspace/` (full tree) | Cursor/Claude/OpenClaw: `$DEST/google-workspace/` · Hermes: `$DEST/productivity/google-workspace/` |
-| `AI-PRO-SKILLS/powerpoint/` (full tree) | Cursor/Claude/OpenClaw: `$DEST/powerpoint/` · Hermes: `$DEST/productivity/powerpoint/` |
+| **pro skills** (`AI-PRO-SKILLS/*`) | see `AI-PRO-SKILLS/SKILL.md` for its own copy map — don't hardcode them here |
 | `ext/<name>/SKILL.md` | `$DEST/<name>/SKILL.md` |
 
 ## After install
